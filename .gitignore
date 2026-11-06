@@ -1,9 +1,13 @@
 .idea/
 *.iml
 .gradle/
+.kotlin/
 build/
 local.properties
 .DS_Store
 Thumbs.db
 __pycache__/
 .env
+captures/
+*.jks
+*.keystore

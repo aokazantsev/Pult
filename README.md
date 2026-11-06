@@ -22,6 +22,15 @@
 
 ПК и телефон связываются по QR, ключи P-256 не покидают устройства, сообщения шифруются сквозным образом.
 
+## Сборка
+
+- **desktop** (Windows, .NET Framework 4.8, штатный `csc.exe`, без SDK): из папки `desktop` — `build.cmd nostart`
+  собирает `Pult.exe`; без `nostart` собранная программа ещё и запускается. Журнал и настройки — в
+  `%LOCALAPPDATA%\Pult` (`log.txt`, `settings.txt`, порт приёма хуков — `hook_port`, по умолчанию 47652).
+- **mobile** (Android, JDK 17 и Android SDK, путь к SDK — `sdk.dir` в `mobile\local.properties`, слеши прямые): из папки
+  `mobile` — `./gradlew assembleDebug`, APK — `app/build/outputs/apk/debug/app-debug.apk`; пакет отладочной сборки —
+  `ru.aokazantsev.pult.debug`.
+
 ## Документы
 
 - [Архитектура и протокол](docs/ARCHITECTURE.md)

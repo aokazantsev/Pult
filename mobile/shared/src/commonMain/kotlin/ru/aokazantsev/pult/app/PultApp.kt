@@ -1,0 +1,40 @@
+package ru.aokazantsev.pult.app
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import ru.aokazantsev.pult.designsystem.theme.PultTheme
+import ru.aokazantsev.pult.di.AppGraph
+import ru.aokazantsev.pult.navigation.Route
+import ru.aokazantsev.pult.ui.main.MainScreen
+
+@Composable
+fun PultApp(
+    graph: AppGraph,
+    onThemeResolved: (darkTheme: Boolean) -> Unit,
+    onBackgroundResolved: (argb: Int) -> Unit,
+) {
+    val darkTheme = isSystemInDarkTheme()
+    LaunchedEffect(darkTheme) { onThemeResolved(darkTheme) }
+    PultTheme(darkTheme = darkTheme, wallpaperColors = PultTheme.wallpaperColorsAvailable) {
+        val background = PultTheme.colors.surfaceContainer
+        LaunchedEffect(background) { onBackgroundResolved(background.toArgb()) }
+        Box(modifier = Modifier.fillMaxSize().background(background)) {
+            val navController = rememberNavController()
+            NavHost(navController = navController, startDestination = Route.Main) {
+                composable<Route.Main> {
+                    MainScreen(viewModel = viewModel { graph.mainViewModel() })
+                }
+            }
+        }
+    }
+}
