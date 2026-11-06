@@ -52,7 +52,7 @@ fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
                 contentPadding = PaddingValues(PultTheme.spacing.l),
                 verticalArrangement = Arrangement.spacedBy(PultTheme.spacing.m),
             ) {
-                items(state.cards, key = { it.key }) { card ->
+                items(state.cards.asReversed(), key = { it.key }) { card ->
                     RequestCardView(
                         card = card,
                         onAllow = { viewModel.allow(card.key) },
