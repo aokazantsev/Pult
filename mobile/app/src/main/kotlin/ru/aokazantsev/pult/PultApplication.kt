@@ -9,6 +9,6 @@ import ru.aokazantsev.pult.di.createAndroidAppGraph
 class PultApplication : Application(), AppGraphHolder {
 
     override val graph: AppGraph by lazy {
-        createAndroidAppGraph(AppInfo(versionName = BuildConfig.VERSION_NAME, isDebug = BuildConfig.DEBUG))
+        createAndroidAppGraph(this, AppInfo(versionName = BuildConfig.VERSION_NAME, isDebug = BuildConfig.DEBUG))
     }
 }

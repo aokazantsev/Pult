@@ -16,6 +16,7 @@ import ru.aokazantsev.pult.designsystem.theme.PultTheme
 import ru.aokazantsev.pult.di.AppGraph
 import ru.aokazantsev.pult.navigation.Route
 import ru.aokazantsev.pult.ui.main.MainScreen
+import ru.aokazantsev.pult.ui.settings.SettingsScreen
 
 @Composable
 fun PultApp(
@@ -32,7 +33,16 @@ fun PultApp(
             val navController = rememberNavController()
             NavHost(navController = navController, startDestination = Route.Main) {
                 composable<Route.Main> {
-                    MainScreen(viewModel = viewModel { graph.mainViewModel() })
+                    MainScreen(
+                        viewModel = viewModel { graph.mainViewModel() },
+                        onOpenSettings = { navController.navigate(Route.Settings) },
+                    )
+                }
+                composable<Route.Settings> {
+                    SettingsScreen(
+                        viewModel = viewModel { graph.settingsViewModel() },
+                        onDone = { navController.popBackStack() },
+                    )
                 }
             }
         }
