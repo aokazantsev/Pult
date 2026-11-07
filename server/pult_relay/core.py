@@ -341,7 +341,6 @@ class Core:
                 self.claim_addr.setdefault(pair_id, addr)
             if rec["status"] == "active":
                 stream.outbox.put(("server", None, self._pair_signal(rec)))
-            stream.outbox.put(("server", None, {"type": "phone_stream", "state": self.phone_state(pair_id)}))
         if rec["status"] == "active":
             self._purge(rec)
             for m in rec["queue"]:
@@ -351,6 +350,8 @@ class Core:
                     stream.outbox.put(CLOSE)
                     break
                 stream.outbox.put(("message", m["seq"], m["env"]))
+        if side == "pc":
+            stream.outbox.put(("server", None, {"type": "phone_stream", "state": self.phone_state(pair_id)}))
         self.streams[(pair_id, side)] = stream
         if side == "phone" and not previous:
             self._send(pair_id, "pc", {"type": "phone_stream", "state": "open"})
