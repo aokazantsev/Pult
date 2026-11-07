@@ -1,0 +1,2 @@
+{"type": "user", "uuid": "m1", "timestamp": "2026-11-07T10:00:05.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "<cross-session-message from=\"local_abc\" at=\"x\">\nГотово: 3 битые ссылки\n</cross-session-message>"}}
+{"type": "user", "uuid": "m2", "timestamp": "2026-11-07T10:00:06.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "обычное <cross-session-message> внутри текста"}}

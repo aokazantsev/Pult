@@ -1,0 +1,30 @@
+{
+ "entries": [
+  {
+   "seq": 1,
+   "kind": "assistant",
+   "at": 1794045605,
+   "text": "Готово. Что дальше?"
+  },
+  {
+   "seq": 2,
+   "kind": "user",
+   "at": 1794045608,
+   "text": "Да, оставь как есть",
+   "via": "phone",
+   "request_id": "r3"
+  },
+  {
+   "seq": 3,
+   "kind": "user",
+   "at": 1794045609,
+   "text": "чужой хук"
+  }
+ ],
+ "phone_texts": [
+  {
+   "text": "Да, оставь как есть",
+   "request_id": "r3"
+  }
+ ]
+}

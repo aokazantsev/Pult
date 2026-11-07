@@ -13,10 +13,19 @@ namespace Pult
         public readonly DateTime ExpiresAtUtc;
         public readonly bool IsLive;
         public readonly Action Rejected;
+        public readonly Action Accepted;
         public readonly ManualResetEvent Done;
 
+        public const int LiveSeconds = 60;
+
         private OutgoingMessage(Dictionary<string, object> inner, List<string> ackIds, string deleteReason, DateTime expiresAtUtc, bool live, Action rejected)
+            : this(inner, ackIds, deleteReason, expiresAtUtc, live, rejected, null)
         {
+        }
+
+        private OutgoingMessage(Dictionary<string, object> inner, List<string> ackIds, string deleteReason, DateTime expiresAtUtc, bool live, Action rejected, Action accepted)
+        {
+            Accepted = accepted;
             Inner = inner;
             AckIds = ackIds;
             DeleteReason = deleteReason;
@@ -41,9 +50,9 @@ namespace Pult
             return new OutgoingMessage(inner, null, null, expiresAtUtc, false, rejected);
         }
 
-        public static OutgoingMessage Live(Dictionary<string, object> inner)
+        public static OutgoingMessage Live(Dictionary<string, object> inner, Action accepted)
         {
-            return new OutgoingMessage(inner, null, null, DateTime.UtcNow.AddSeconds(10), true, null);
+            return new OutgoingMessage(inner, null, null, DateTime.UtcNow.AddSeconds(LiveSeconds), true, null, accepted);
         }
 
         public static OutgoingMessage Ack(List<string> ids)

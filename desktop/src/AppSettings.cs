@@ -16,10 +16,12 @@ namespace Pult
         private const string LegacyPairKey = "pair";
         private const string LegacyTokenKey = "pc_token";
         private const string WaitKey = "wait_seconds";
+        private const string ChoiceKey = "choice_delivery";
 
         public int HookPort = DefaultHookPort;
         public string Server = "";
         public int WaitSeconds = DefaultWaitSeconds;
+        public bool ChoiceDelivery = true;
 
         public static string FilePath
         {
@@ -68,7 +70,7 @@ namespace Pult
 
         public string Describe()
         {
-            return "hook port=" + HookPort + ", wait=" + WaitSeconds + " s, server=" + (ServerConfigured ? Server : "not configured");
+            return "hook port=" + HookPort + ", wait=" + WaitSeconds + " s, choice delivery=" + (ChoiceDelivery ? "on" : "off") + ", server=" + (ServerConfigured ? Server : "not configured");
         }
 
         private void Apply(string key, string value)
@@ -82,6 +84,9 @@ namespace Pult
                     return;
                 case WaitKey:
                     if (isNumber) WaitSeconds = Math.Max(MinWaitSeconds, Math.Min(MaxWaitSeconds, number));
+                    return;
+                case ChoiceKey:
+                    if (isNumber) ChoiceDelivery = number != 0;
                     return;
                 case ServerKey:
                     Server = value;
@@ -98,6 +103,7 @@ namespace Pult
             var text = new StringBuilder();
             text.Append(HookPortKey).Append('=').Append(HookPort.ToString(CultureInfo.InvariantCulture)).Append(Environment.NewLine);
             text.Append(WaitKey).Append('=').Append(WaitSeconds.ToString(CultureInfo.InvariantCulture)).Append(Environment.NewLine);
+            text.Append(ChoiceKey).Append('=').Append(ChoiceDelivery ? "1" : "0").Append(Environment.NewLine);
             text.Append(ServerKey).Append('=').Append(Server).Append(Environment.NewLine);
             try
             {

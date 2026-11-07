@@ -14,7 +14,7 @@ namespace PultHook
         private const int DefaultHookPort = 47652;
         private const int DefaultLimitSeconds = 570;
         private const int ConnectTimeoutMs = 2000;
-        private static readonly string[] ForwardedEnvironment = { "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP" };
+        private static readonly string[] ForwardedEnvironment = { "CLAUDE_CODE_STOP_HOOK_BLOCK_CAP", "CLAUDE_CODE_HOST_SESSION_ID" };
 
         private static int Main(string[] args)
         {

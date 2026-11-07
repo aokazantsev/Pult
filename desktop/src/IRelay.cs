@@ -14,5 +14,7 @@ namespace Pult
         void Send(Dictionary<string, object> inner, DateTime expiresAtUtc, Action rejected);
 
         void SendLive(Dictionary<string, object> inner);
+
+        void SendLive(Dictionary<string, object> inner, Action accepted);
     }
 }

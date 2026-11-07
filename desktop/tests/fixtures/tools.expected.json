@@ -1,0 +1,77 @@
+{
+ "entries": [
+  {
+   "seq": 1,
+   "kind": "user",
+   "at": 1794045605,
+   "text": "Создай папку t1"
+  },
+  {
+   "seq": 2,
+   "kind": "assistant",
+   "at": 1794045606,
+   "text": "Создаю."
+  },
+  {
+   "seq": 3,
+   "kind": "tool_call",
+   "at": 1794045606,
+   "call": "toolu_01A",
+   "tool": "Bash",
+   "summary": "mkdir t1",
+   "input": {
+    "command": "mkdir t1",
+    "timeout": 5000,
+    "run_in_background": false,
+    "nested": "{\"a\":1}"
+   }
+  },
+  {
+   "seq": 4,
+   "kind": "tool_result",
+   "at": 1794045607,
+   "call": "toolu_01A",
+   "output": "",
+   "error": false
+  },
+  {
+   "seq": 5,
+   "kind": "tool_call",
+   "at": 1794045608,
+   "call": "@c1",
+   "tool": "Read",
+   "summary": "D:/x/README.md",
+   "input": {
+    "file_path": "D:/x/README.md"
+   }
+  },
+  {
+   "seq": 6,
+   "kind": "tool_result",
+   "at": 1794045609,
+   "call": "@c1",
+   "output": "строка 1\nстрока 2",
+   "error": true
+  },
+  {
+   "seq": 7,
+   "kind": "tool_call",
+   "at": 1794045610,
+   "call": "toolu_03C",
+   "tool": "Bash",
+   "summary": "cat big",
+   "input": {
+    "command": "cat big"
+   }
+  },
+  {
+   "seq": 8,
+   "kind": "tool_result",
+   "at": 1794045611,
+   "call": "toolu_03C",
+   "output": "@cut2000",
+   "error": false,
+   "truncated": true
+  }
+ ]
+}

@@ -138,8 +138,13 @@ namespace Pult
 
         public void SendLive(Dictionary<string, object> inner)
         {
+            SendLive(inner, null);
+        }
+
+        public void SendLive(Dictionary<string, object> inner, Action accepted)
+        {
             if (!connected || !session.IsActive) return;
-            Enqueue(OutgoingMessage.Live(inner), false);
+            Enqueue(OutgoingMessage.Live(inner, accepted), false);
         }
 
         public bool DeletePair(string reason, TimeSpan patience)
@@ -400,16 +405,21 @@ namespace Pult
 
         private void Greet()
         {
-            var hello = new Dictionary<string, object>
+            Dictionary<string, object> hello = HelloMessage();
+            bool queued;
+            lock (queueGate) queued = queue.Exists(m => m.Inner != null && Json.String(m.Inner, "type") == "hello");
+            if (!queued) Enqueue(OutgoingMessage.Queued(hello, DateTime.UtcNow.AddSeconds(HelloTtlSeconds), null), true);
+            if (listener != null) listener.OnRelayConnected();
+        }
+
+        public static Dictionary<string, object> HelloMessage()
+        {
+            return new Dictionary<string, object>
             {
                 { "type", "hello" },
                 { "protocol", new List<object> { (long)Envelope.Version } },
                 { "capabilities", new List<object>() }
             };
-            bool queued;
-            lock (queueGate) queued = queue.Exists(m => m.Inner != null && Json.String(m.Inner, "type") == "hello");
-            if (!queued) Enqueue(OutgoingMessage.Queued(hello, DateTime.UtcNow.AddSeconds(HelloTtlSeconds), null), true);
-            if (listener != null) listener.OnRelayConnected();
         }
 
         private void HandleEnvelope(Dictionary<string, object> payload)
@@ -434,9 +444,17 @@ namespace Pult
             {
                 Dictionary<string, object> inner = opened.Inner;
                 string type = Json.String(inner, "type");
-                AppLog.Append("relay: phone " + type + " " + (Json.String(inner, "request_id") ?? ""));
-                if (type == "hello") CheckPhoneVersions(inner);
-                if (listener != null) listener.OnPhoneMessage(inner);
+                string problem = MessageRules.Check(inner, "pc");
+                if (problem != null)
+                {
+                    AppLog.Append("relay: phone " + type + " " + opened.Id + " dropped: " + problem);
+                }
+                else
+                {
+                    AppLog.Append("relay: phone " + type + " " + (Json.String(inner, "request_id") ?? ""));
+                    if (type == "hello") CheckPhoneVersions(inner);
+                    if (listener != null) listener.OnPhoneMessage(inner);
+                }
             }
             Enqueue(OutgoingMessage.Ack(new List<string> { opened.Id }), false);
         }
@@ -545,6 +563,10 @@ namespace Pult
                 {
                     AppLog.Append("relay: " + Kind(next) + " refused: " + response.Describe());
                     if (next.Rejected != null) next.Rejected();
+                }
+                else if (next.Accepted != null)
+                {
+                    next.Accepted();
                 }
             }
         }

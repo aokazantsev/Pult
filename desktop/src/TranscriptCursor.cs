@@ -19,6 +19,22 @@ namespace Pult
             this.offset = offset;
         }
 
+        public static TranscriptCursor FromOffset(string path, long offset)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            return new TranscriptCursor(path, Math.Max(0, offset));
+        }
+
+        public long Offset
+        {
+            get { return offset; }
+        }
+
+        public string Path
+        {
+            get { return path; }
+        }
+
         public static TranscriptCursor AtEnd(string path)
         {
             if (string.IsNullOrEmpty(path)) return null;
@@ -48,6 +64,17 @@ namespace Pult
         public List<string> ReadNew()
         {
             var lines = new List<string>();
+            try
+            {
+                var info = new FileInfo(path);
+                if (info.Exists && info.Length == offset && partial.Length == 0) return lines;
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
             byte[] chunk;
             try
             {

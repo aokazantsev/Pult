@@ -1,0 +1,18 @@
+{
+ "entries": [
+  {
+   "seq": 1,
+   "kind": "peer",
+   "at": 1794045605,
+   "direction": "in",
+   "peer_title": "…",
+   "text": "Готово: 3 битые ссылки"
+  },
+  {
+   "seq": 2,
+   "kind": "user",
+   "at": 1794045606,
+   "text": "обычное <cross-session-message> внутри текста"
+  }
+ ]
+}

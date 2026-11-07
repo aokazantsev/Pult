@@ -42,7 +42,8 @@ namespace Pult
             ServicePointManager.DefaultConnectionLimit = 16;
             ServicePointManager.Expect100Continue = false;
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-            broker = new Broker(relay, TimeSpan.FromSeconds(settings.WaitSeconds), BrokerPollMs);
+            broker = new Broker(relay, TimeSpan.FromSeconds(settings.WaitSeconds), BrokerPollMs, new DesktopSessions(DesktopSessions.DefaultRoot), UserDataPaths.Directory, Broker.DefaultTickMs, Broker.DefaultSnapshotDelayMs);
+            broker.ChoiceDelivery = settings.ChoiceDelivery;
             PairRecord.Delete(UserDataPaths.File("processed-ids.txt"));
             string secret = HookSecret.LoadOrCreate();
             if (secret != null)
@@ -91,12 +92,14 @@ namespace Pult
 
         public void OnPaired(RelayClient client)
         {
+            client.Session.PairedAtUtc = DateTime.UtcNow;
             if (!client.Session.ToRecord().Save(UserDataPaths.File(PairRecord.PairFile))) AppLog.Append("pair " + client.Session.Pair + " not saved: it will be lost after restart");
             PairRecord.Delete(UserDataPaths.File(PairRecord.ClaimFile));
             RelayClient previous = active;
+            if (previous != null && previous != client) broker.EndSession();
             active = client;
             relay.Current = client;
-            broker.ResetIdle();
+            broker.BeginSession(client.Session.Pair, client.Session.PairedAtUtc, client.Session.Folders, false);
             if (previous != null && previous != client)
             {
                 ThreadPool.QueueUserWorkItem(state =>
@@ -169,8 +172,11 @@ namespace Pult
                 PairKeys.DeleteByName(record.AgreeKey);
                 return;
             }
-            active = StartClient(session);
-            relay.Current = active;
+            var client = new RelayClient(session, this);
+            active = client;
+            relay.Current = client;
+            broker.BeginSession(session.Pair, session.PairedAtUtc, session.Folders, true);
+            client.Start(broker);
         }
 
         private RelayClient StartClient(RelaySession session)
@@ -221,6 +227,7 @@ namespace Pult
             if (client != active) return;
             active = null;
             relay.Current = null;
+            broker.EndSession();
             AppLog.Append("pair " + client.Session.Pair + " detached");
         }
 
@@ -238,13 +245,13 @@ namespace Pult
         {
             switch (reason)
             {
-                case "user": return by == "phone" ? "Телефон отвязан: сессия закончена" : "Пара разорвана на ПК";
-                case "idle": return "Сессия закончилась по простою";
-                case "replaced": return "Телефон подключён к другой сессии: эта закончена";
-                case "no_hello": return "Телефон не дождался подтверждения ПК: сопряжение не завершено";
-                case "pairing_rejected": return "Сопряжение отклонено";
-                case "pc_offline": return "ПК был без связи с сервером дольше 5 минут: сессия закончена";
-                case "not_found": return "Пары больше нет на сервере: сессия закончена";
+                case "user": return by == "phone" ? "Телефон отвязан с телефона" : "Сессия разорвана";
+                case "idle": return "Сессия закрыта: нет событий";
+                case "replaced": return "Телефон сопряжён заново";
+                case "no_hello": return "Телефон не дождался подтверждения сопряжения";
+                case "pairing_rejected": return "Попытка сопряжения не прошла проверку";
+                case "pc_offline": return "Не было связи с сервером дольше 5 минут";
+                case "not_found": return "Сессии больше нет: её разорвала другая сторона";
                 default: return "Сессия закончена (" + reason + ")";
             }
         }

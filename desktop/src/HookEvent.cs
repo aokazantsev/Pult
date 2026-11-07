@@ -31,6 +31,15 @@ namespace Pult
             get { return Json.String(Data, "transcript_path"); }
         }
 
+        public string HostSessionId
+        {
+            get
+            {
+                string id = Json.String(Environment, "CLAUDE_CODE_HOST_SESSION_ID");
+                return string.IsNullOrWhiteSpace(id) ? null : id.Trim();
+            }
+        }
+
         public string Cwd
         {
             get { return Json.String(Data, "cwd"); }

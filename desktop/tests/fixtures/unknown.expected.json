@@ -1,0 +1,28 @@
+{
+ "entries": [
+  {
+   "seq": 1,
+   "kind": "user",
+   "at": 1794045605,
+   "text": "Привет"
+  },
+  {
+   "seq": 2,
+   "kind": "unrecognized",
+   "at": 1794045608,
+   "count": 3
+  },
+  {
+   "seq": 3,
+   "kind": "assistant",
+   "at": 1794045608,
+   "text": "Нашёл."
+  },
+  {
+   "seq": 4,
+   "kind": "unrecognized",
+   "at": 1794045609,
+   "count": 1
+  }
+ ]
+}

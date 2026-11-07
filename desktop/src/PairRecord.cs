@@ -18,6 +18,8 @@ namespace Pult
         public string PhoneSign;
         public string PhoneAgree;
         public int IdleSeconds;
+        public long PairedAtUnix;
+        public List<string> Folders = new List<string>();
 
         public static PairRecord Load(string path)
         {
@@ -39,6 +41,12 @@ namespace Pult
                     PhoneSign = Get(values, "phone_sign"),
                     PhoneAgree = Get(values, "phone_agree")
                 };
+                foreach (string line in File.ReadAllLines(path, new UTF8Encoding(false)))
+                {
+                    if (line.StartsWith("folder=", StringComparison.Ordinal) && line.Length > 7) record.Folders.Add(line.Substring(7).Trim());
+                }
+                long pairedAt;
+                if (long.TryParse(Get(values, "paired_at"), NumberStyles.None, CultureInfo.InvariantCulture, out pairedAt)) record.PairedAtUnix = pairedAt;
                 int idle;
                 if (int.TryParse(Get(values, "idle_seconds"), NumberStyles.None, CultureInfo.InvariantCulture, out idle)) record.IdleSeconds = idle;
                 if (string.IsNullOrEmpty(record.Server) || !StrictJson.IsIdentifier(record.Pair) || string.IsNullOrEmpty(record.SignKey) || string.IsNullOrEmpty(record.AgreeKey))
@@ -75,6 +83,8 @@ namespace Pult
             if (PhoneSign != null) Line(text, "phone_sign", PhoneSign);
             if (PhoneAgree != null) Line(text, "phone_agree", PhoneAgree);
             if (IdleSeconds > 0) Line(text, "idle_seconds", IdleSeconds.ToString(CultureInfo.InvariantCulture));
+            if (PairedAtUnix > 0) Line(text, "paired_at", PairedAtUnix.ToString(CultureInfo.InvariantCulture));
+            foreach (string folder in Folders) Line(text, "folder", folder);
             string temp = path + ".tmp";
             try
             {

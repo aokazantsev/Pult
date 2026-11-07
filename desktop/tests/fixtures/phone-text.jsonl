@@ -1,0 +1,3 @@
+{"type": "assistant", "uuid": "f1", "timestamp": "2026-11-07T10:00:05.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "text", "text": "Готово. Что дальше?"}]}}
+{"type": "user", "uuid": "f2", "timestamp": "2026-11-07T10:00:08.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "Stop hook feedback:\nДа, оставь как есть"}, "isMeta": true}
+{"type": "user", "uuid": "f3", "timestamp": "2026-11-07T10:00:09.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "Stop hook feedback:\nчужой хук"}, "isMeta": true}

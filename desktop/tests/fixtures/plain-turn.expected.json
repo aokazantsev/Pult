@@ -1,0 +1,24 @@
+{
+ "entries": [
+  {
+   "seq": 1,
+   "kind": "user",
+   "at": 1794045605,
+   "text": "Поправь README"
+  },
+  {
+   "seq": 2,
+   "kind": "assistant",
+   "at": 1794045608,
+   "text": "Сейчас посмотрю **README**."
+  },
+  {
+   "seq": 3,
+   "kind": "user",
+   "at": 1794045609,
+   "text": "Да, оставь как есть"
+  }
+ ],
+ "title": "Правка README",
+ "candidates": 6
+}

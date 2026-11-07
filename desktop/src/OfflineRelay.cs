@@ -28,5 +28,9 @@ namespace Pult
         public void SendLive(Dictionary<string, object> inner)
         {
         }
+
+        public void SendLive(Dictionary<string, object> inner, Action accepted)
+        {
+        }
     }
 }

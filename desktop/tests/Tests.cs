@@ -46,7 +46,7 @@ namespace Pult.Tests
             Run("queued input on pc releases text window", TextEnqueueReleases);
             Run("continuation cap keeps window closed", ContinuationCap);
             Run("continuation cap from environment", ContinuationCapFromEnvironment);
-            Run("hello resends open requests", HelloResends);
+            Run("hello sends a snapshot with the open request", HelloSendsSnapshotWithOpenRequest);
             Run("transcript cursor keeps partial line", CursorPartialLine);
             Run("transcript signals", SignalsScan);
             Run("hook channel line protocol", ChannelLineProtocol);
@@ -67,6 +67,46 @@ namespace Pult.Tests
             Run("stale stream logs in again, replay retried", RelayTests.StaleStreamLogsInAgain);
             Run("pair deleted ends the session", RelayTests.PairDeletedEndsSession);
             Run("unpair sends a signed delete", RelayTests.UnpairSendsSignedDelete);
+            Run("vectors: messages valid and reject", MessageTests.ValidAndReject);
+            Run("vectors: choice answers", MessageTests.ChoiceVectors);
+            Run("vectors: tails", MessageTests.TailVectors);
+            Run("built messages equal the examples", MessageTests.BuiltMessagesEqualExamples);
+            Run("D1 transcript fixtures", MessageTests.TranscriptFixtures);
+            Run("D1 limits of entries", MessageTests.LimitsOfEntries);
+            Run("D2 statuses, error code, title", ThreadTests.StatusesAndTitle);
+            Run("D2 title from the first message", ThreadTests.TitleFromFirstMessage);
+            Run("D2 thread, feed, request order", ThreadTests.ThreadBeforeFeedBeforeRequest);
+            Run("D2 thread outside the folders stays on the PC", ThreadTests.ThreadOutsideFoldersStaysOnPc);
+            Run("D2 child shows its parent as unknown", ThreadTests.ChildThreadShowsParentAsUnknown);
+            Run("D2 parent outside the folders is not shown", ThreadTests.ParentOutsideFoldersIsNotShown);
+            Run("D2 continuation, fork, separate items", ThreadTests.ContinuationKeepsThreadForkAndUnknownMakeNew);
+            Run("D2 fork of a thread outside the session", ThreadTests.ForkOfOutsideSession);
+            Run("D2 pc dialog mark: desktop app", ThreadTests.PcDialogMarkDesktopApp);
+            Run("D2 pc dialog mark: phone answer clears", ThreadTests.PcDialogMarkDesktopAppPhoneAnswerClears);
+            Run("D2 pc dialog mark: CLI", ThreadTests.PcDialogMarkCli);
+            Run("D2 pc dialog mark: notification keeps it", ThreadTests.PcDialogNotificationKeepsMark);
+            Run("D2 turn note on the cap", ThreadTests.TurnNoteOnCap);
+            Run("D2 hundred threads limit", ThreadTests.ThreadLimit);
+            Run("D2 folder matching", ThreadTests.FolderMatching);
+            Run("D2 folder from startup cwd and transcript directory", ThreadTests.FolderFromStartupCwdAndTranscriptDirectory);
+            Run("D2 startup cwd remembered before pairing", ThreadTests.StartupCwdRememberedBeforePairing);
+            Run("D3 restart closes open requests", ThreadTests.RestartClosesOpenRequests);
+            Run("D3 restart keeps the feed, no repeated seq", ThreadTests.RestartKeepsFeedWithoutRepeatedSeq);
+            Run("D3 restart with lost state starts over", ThreadTests.RestartWithLostStateStartsOver);
+            Run("D3 end of session erases the state", ThreadTests.EndSessionErasesState);
+            Run("D3 pair record keeps folders and time", ThreadTests.StateOnDiskIsAtomicAndSessionRecordKeepsFolders);
+            Run("D4 snapshot race and order", ThreadTests.SnapshotRaceAndOrder);
+            Run("D4 snapshot parts", ThreadTests.SnapshotSplitsIntoParts);
+            Run("D4 tails follow hello and accepted feeds", ThreadTests.TailsFollowHelloAndAcceptedFeeds);
+            Run("D4 hello burst makes one snapshot", ThreadTests.HelloWithinOneSecondsMakesOneSnapshot);
+            Run("D5 question answered from the phone", ThreadTests.ChoiceQuestionIsAnsweredFromPhone);
+            Run("D5 selected options map to labels", ThreadTests.ChoiceSelectedOptionsMapToLabels);
+            Run("D5 question without the capability stays on the PC", ThreadTests.ChoiceWithoutCapabilityStaysOnPc);
+            Run("D5 not answerable question is a card without actions", ThreadTests.ChoiceNotAnswerableIsAGhostCard);
+            Run("D6 ttl by type", ThreadTests.TtlByType);
+            Run("D6 phone text shows in the feed", ThreadTests.PhoneTextShowsInFeedWithRequestId);
+            Run("D6 posts keep the queue order", RelayTests.MessagesArePostedInQueueOrder);
+            Run("D7 invalid phone messages are dropped and acked", RelayTests.InvalidPhoneMessagesAreDroppedAndAcked);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try
@@ -112,12 +152,15 @@ namespace Pult.Tests
 
         private static Broker NewBroker(IRelay relay, double waitSeconds)
         {
-            return new Broker(relay, TimeSpan.FromSeconds(waitSeconds), 20);
+            var broker = new Broker(relay, TimeSpan.FromSeconds(waitSeconds), 20, new DesktopSessions(null), Sandbox, 0, 0);
+            broker.BeginSession("pair-" + Guid.NewGuid().ToString("N").Substring(0, 8), DateTime.UtcNow.AddHours(-1), new List<string> { "C:\\work" }, false);
+            broker.Hub.RememberStart(Event("SessionStart", null, "source", "startup"));
+            return broker;
         }
 
         private static HookEvent Event(string name, string transcript, params object[] pairs)
         {
-            var data = new Dictionary<string, object> { { "hook_event_name", name }, { "session_id", Session }, { "cwd", "C:\\work\\demo" } };
+            var data = new Dictionary<string, object> { { "hook_event_name", name }, { "session_id", Session }, { "cwd", "C:\\work\\demo" }, { "session_title", "Demo thread" } };
             if (transcript != null) data["transcript_path"] = transcript;
             var env = new Dictionary<string, object>();
             for (int i = 0; i + 1 < pairs.Length; i += 2)
@@ -217,7 +260,7 @@ namespace Pult.Tests
             Dictionary<string, object> request = relay.Sent("permission_request")[0];
             Equal("Bash", Json.String(request, "tool"), "tool");
             Equal("ls", Json.String(request, "summary"), "summary");
-            Equal("demo", Json.String(request, "title"), "title");
+            Equal("Demo thread", Json.String(request, "title"), "title");
             broker.OnPhoneMessage(Answer("permission_response", id, "decision", "allow"));
             Finish(thread);
             Dictionary<string, object> output = Json.ParseObject(channel.Output);
@@ -484,19 +527,22 @@ namespace Pult.Tests
             Equal(1, relay.Sent("text_request").Count, "windows");
         }
 
-        private static void HelloResends()
+        private static void HelloSendsSnapshotWithOpenRequest()
         {
             var relay = new FakeRelay();
             Broker broker = NewBroker(relay, 5);
             var channel = new FakeChannel(HookAck.Taken);
             Thread thread = Start(broker, Permission("ls", null), channel, 60);
             string id = WaitRequest(relay, "permission_request");
-            broker.OnPhoneMessage(new Dictionary<string, object> { { "type", "hello" }, { "protocol", 1 } });
-            Equal(2, relay.Sent("permission_request").Count, "requests after hello");
-            Equal(id, Json.String(relay.Sent("permission_request")[1], "request_id"), "same request id");
-            Check(relay.Sent("mode").Count == 1, "mode sent on hello");
+            broker.OnPhoneMessage(new Dictionary<string, object> { { "type", "hello" }, { "protocol", new object[] { 2L } }, { "capabilities", new object[0] } });
+            Equal(1, relay.Sent("permission_request").Count, "request is not repeated, the snapshot carries it");
+            Dictionary<string, object> snapshot = relay.Sent("snapshot")[0];
+            var requests = (List<object>)snapshot["requests"];
+            Equal(id, Json.String((Dictionary<string, object>)requests[0], "request_id"), "request in snapshot");
+            Equal("phone", Json.String(snapshot, "mode"), "mode in snapshot");
             broker.SetMode(ControlMode.Pc);
             Finish(thread);
+            Equal(0, relay.Problems.Count, "messages against valid rules: " + string.Join("; ", relay.Problems.ToArray()));
         }
 
         private static void CursorPartialLine()

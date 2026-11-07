@@ -28,6 +28,10 @@ namespace Pult
             }
         }
 
+        public System.Collections.Generic.List<string> Folders = new System.Collections.Generic.List<string>();
+
+        public DateTime PairedAtUtc = DateTime.MinValue;
+
         public string PhoneSign { get; private set; }
 
         public string PhoneAgree { get; private set; }
@@ -70,7 +74,13 @@ namespace Pult
                 return null;
             }
             int idle = record.IdleSeconds >= QrPayload.MinIdleSeconds && record.IdleSeconds <= QrPayload.MaxIdleSeconds ? record.IdleSeconds : QrPayload.DefaultIdleSeconds;
-            return Active(record.Server, record.Pair, keys, record.PhoneSign, record.PhoneAgree, idle);
+            RelaySession restored = Active(record.Server, record.Pair, keys, record.PhoneSign, record.PhoneAgree, idle);
+            if (restored != null)
+            {
+                restored.Folders = new System.Collections.Generic.List<string>(record.Folders);
+                restored.PairedAtUtc = record.PairedAtUnix > 0 ? new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(record.PairedAtUnix) : DateTime.UtcNow;
+            }
+            return restored;
         }
 
         public bool Verify(string phoneSign, string phoneAgree, string tag)
@@ -122,7 +132,9 @@ namespace Pult
                 AgreeKey = Keys.AgreeName,
                 PhoneSign = PhoneSign,
                 PhoneAgree = PhoneAgree,
-                IdleSeconds = IdleSeconds
+                IdleSeconds = IdleSeconds,
+                Folders = new System.Collections.Generic.List<string>(Folders),
+                PairedAtUnix = PairedAtUtc == DateTime.MinValue ? 0 : (long)(PairedAtUtc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds
             };
         }
 

@@ -1,0 +1,5 @@
+{"type": "user", "uuid": "k1", "timestamp": "2026-11-07T10:00:05.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "Привет"}}
+{"type": "brand-new-type", "uuid": "k2", "timestamp": "2026-11-07T10:00:06.000Z", "sessionId": "s-1", "isSidechain": false, "payload": {"x": 1}}
+{"type": "another-new-type", "uuid": "k3", "timestamp": "2026-11-07T10:00:07.000Z", "sessionId": "s-1", "isSidechain": false}
+{"type": "assistant", "uuid": "k4", "timestamp": "2026-11-07T10:00:08.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "server_tool_use", "id": "s1", "name": "web_search", "input": {}}, {"type": "text", "text": "Нашёл."}]}}
+{"type": "future", "uuid": "k5", "timestamp": "2026-11-07T10:00:09.000Z", "sessionId": "s-1", "isSidechain": false}

@@ -15,6 +15,8 @@ namespace Pult
         private readonly Func<RelaySession, RelayClient> startClient;
         private readonly TextBox serverBox = new TextBox();
         private readonly NumericUpDown idleBox = new NumericUpDown();
+        private readonly CheckedListBox folderList = new CheckedListBox();
+        private readonly Button addFolderButton = new Button();
         private readonly PictureBox qrBox = new PictureBox();
         private readonly Label statusLabel = new Label();
         private readonly Label fingerprintLabel = new Label();
@@ -36,7 +38,7 @@ namespace Pult
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             ShowInTaskbar = true;
-            ClientSize = new Size(440, 640);
+            ClientSize = new Size(440, 760);
             Font = new Font("Segoe UI", 9f);
 
             var serverLabel = new Label { Text = "Сервер:", Location = new Point(16, 18), AutoSize = true };
@@ -52,26 +54,37 @@ namespace Pult
             idleBox.Maximum = QrPayload.MaxIdleSeconds / 3600m;
             idleBox.Value = QrPayload.DefaultIdleSeconds / 3600m;
             idleBox.ValueChanged += (sender, e) => OnIdleChanged();
-            qrBox.Location = new Point(40, 128);
+            var folderLabel = new Label { Text = "Папки проектов, чьи треды увидит телефон:", Location = new Point(16, 124), AutoSize = true };
+            folderList.Location = new Point(16, 144);
+            folderList.Size = new Size(408, 74);
+            folderList.CheckOnClick = true;
+            folderList.HorizontalScrollbar = true;
+            folderList.ItemCheck += (sender, e) => BeginInvoke(new Action(ApplyFolders));
+            addFolderButton.Text = "Добавить папку…";
+            addFolderButton.Location = new Point(16, 220);
+            addFolderButton.Size = new Size(140, 24);
+            addFolderButton.Click += (sender, e) => OnAddFolder();
+            foreach (DesktopMeta meta in new DesktopSessions(DesktopSessions.DefaultRoot).Recent(8)) folderList.Items.Add(meta.OriginCwd ?? meta.Cwd, true);
+            qrBox.Location = new Point(40, 248);
             qrBox.Size = new Size(360, 360);
             qrBox.SizeMode = PictureBoxSizeMode.Zoom;
             qrBox.BackColor = Color.White;
-            statusLabel.Location = new Point(16, 496);
+            statusLabel.Location = new Point(16, 616);
             statusLabel.Size = new Size(408, 54);
-            fingerprintLabel.Location = new Point(16, 550);
+            fingerprintLabel.Location = new Point(16, 670);
             fingerprintLabel.Size = new Size(408, 34);
             fingerprintLabel.Font = new Font("Consolas", 16f, FontStyle.Bold);
             fingerprintLabel.TextAlign = ContentAlignment.MiddleCenter;
             newQrButton.Text = "Новый QR";
-            newQrButton.Location = new Point(220, 596);
+            newQrButton.Location = new Point(220, 716);
             newQrButton.Size = new Size(100, 30);
             newQrButton.Click += (sender, e) => StartOffer();
             closeButton.Text = "Закрыть";
-            closeButton.Location = new Point(324, 596);
+            closeButton.Location = new Point(324, 716);
             closeButton.Size = new Size(100, 30);
             closeButton.Click += (sender, e) => Close();
             CancelButton = closeButton;
-            Controls.AddRange(new Control[] { serverLabel, serverBox, idleLabel, idleBox, qrBox, statusLabel, fingerprintLabel, newQrButton, closeButton });
+            Controls.AddRange(new Control[] { serverLabel, serverBox, idleLabel, idleBox, folderLabel, folderList, addFolderButton, qrBox, statusLabel, fingerprintLabel, newQrButton, closeButton });
             clock.Tick += (sender, e) => Tick();
             Shown += (sender, e) =>
             {
@@ -100,6 +113,8 @@ namespace Pult
             closeButton.Text = "Готово";
             idleBox.Enabled = false;
             serverBox.Enabled = false;
+            folderList.Enabled = false;
+            addFolderButton.Enabled = false;
         }
 
         public void OnRejected(RelayClient client)
@@ -177,6 +192,7 @@ namespace Pult
                 return;
             }
             created.Session.IdleSeconds = IdleSeconds();
+            created.Session.Folders = SelectedFolders();
             offer = created;
             pending = startClient(created.Session);
             RenderQr();
@@ -215,6 +231,32 @@ namespace Pult
             if (offer == null) return;
             offer.Session.IdleSeconds = IdleSeconds();
             RenderQr();
+        }
+
+        private System.Collections.Generic.List<string> SelectedFolders()
+        {
+            var folders = new System.Collections.Generic.List<string>();
+            foreach (object item in folderList.CheckedItems) folders.Add((string)item);
+            return folders;
+        }
+
+        private void ApplyFolders()
+        {
+            if (offer != null) offer.Session.Folders = SelectedFolders();
+        }
+
+        private void OnAddFolder()
+        {
+            using (var dialog = new FolderBrowserDialog())
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                foreach (object item in folderList.Items)
+                {
+                    if (string.Equals(FolderMembership.Normalize((string)item), FolderMembership.Normalize(dialog.SelectedPath), StringComparison.OrdinalIgnoreCase)) return;
+                }
+                folderList.Items.Add(dialog.SelectedPath, true);
+                ApplyFolders();
+            }
         }
 
         private int IdleSeconds()

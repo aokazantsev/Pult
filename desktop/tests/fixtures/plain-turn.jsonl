@@ -1,0 +1,9 @@
+{"type": "queue-operation", "operation": "enqueue", "timestamp": "2026-11-07T10:00:01.000Z", "sessionId": "s-1", "content": "Поправь README"}
+{"type": "user", "uuid": "p1", "timestamp": "2026-11-07T10:00:05.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "Поправь README"}}
+{"type": "last-prompt", "lastPrompt": "Поправь README", "sessionId": "s-1"}
+{"type": "attachment", "uuid": "p2", "timestamp": "2026-11-07T10:00:06.000Z", "sessionId": "s-1", "isSidechain": false, "attachment": {"type": "hook_success", "hookName": "SessionStart:startup"}}
+{"type": "assistant", "uuid": "p3", "timestamp": "2026-11-07T10:00:07.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "", "signature": "x"}]}}
+{"type": "assistant", "uuid": "p4", "timestamp": "2026-11-07T10:00:08.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "", "signature": "x"}, {"type": "text", "text": "Сейчас посмотрю **README**."}]}}
+{"type": "custom-title", "customTitle": "Правка README", "sessionId": "s-1"}
+{"type": "user", "uuid": "p5", "timestamp": "2026-11-07T10:00:09.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": [{"type": "text", "text": "Да, оставь как есть"}]}}
+{"type": "user", "uuid": "p6", "timestamp": "2026-11-07T10:00:10.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "служебное"}, "isMeta": true}

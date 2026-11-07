@@ -70,7 +70,7 @@ namespace Pult.Tests
                     { "tool_input", new Dictionary<string, object>() }
                 };
                 if (transcript != null) data["transcript_path"] = transcript;
-                var request = new PendingRequest("r", RequestKind.Permission, new HookEvent(data, new Dictionary<string, object>()), DateTime.UtcNow.AddMinutes(1), new Dictionary<string, object>());
+                var request = new PendingRequest("r", RequestKind.Permission, new HookEvent(data, new Dictionary<string, object>()), DateTime.UtcNow.AddMinutes(1), new Dictionary<string, object>(), null);
                 Expect(request.Transcript == null || request.Transcript.ReadNew().Count == 0, "transcript " + (transcript ?? "absent"));
             }
         }
@@ -152,6 +152,71 @@ namespace Pult.Tests
                 string acked = string.Join(" ", server.Posts("acks").ConvertAll(p => p.Body));
                 Expect(acked.Contains("pc-x") && acked.Contains("ph-2"), "dropped envelopes are acked by id");
             }
+        }
+
+        public static void InvalidPhoneMessagesAreDroppedAndAcked()
+        {
+            int port = FreePort();
+            RelaySession session = ActiveSession(port);
+            string[] bodies =
+            {
+                "{\"type\":\"permission_response\",\"request_id\":\"r1\",\"decision\":\"allow\"}",
+                "{\"type\":\"permission_response\",\"request_id\":\"r2\",\"decision\":\"maybe\"}",
+                "{\"type\":\"text_response\",\"request_id\":\"r3\",\"text\":\"x\",\"extra\":null}",
+                "{\"type\":\"feed\",\"thread\":\"t1\",\"entries\":[{\"seq\":1,\"kind\":\"user\",\"text\":\"a\"}]}",
+                "{\"type\":\"future_card\",\"anything\":[1]}",
+                "{\"type\":\"text_response\",\"request_id\":\"r4\",\"text\":\"  \"}"
+            };
+            var listener = new RecordingListener();
+            using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
+            using (var client = new RelayClient(session, listener, TempFile()))
+            {
+                for (int i = 0; i < bodies.Length; i++)
+                {
+                    server.Queue("event: message\ndata: " + Envelope.Seal(session.Directions, session.Pair, "phone", "ph-" + i, 1, 600, bodies[i]) + "\n\n");
+                }
+                client.Start(listener);
+                WaitFor(() => server.Posts("acks").Count == bodies.Length, 10, "every envelope acked");
+                Thread.Sleep(200);
+                Expect(listener.Messages == 2, "only the valid response and the unknown type reach the broker, got " + listener.Messages);
+            }
+        }
+
+        public static void MessagesArePostedInQueueOrder()
+        {
+            int port = FreePort();
+            RelaySession session = ActiveSession(port);
+            using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
+            using (var client = new RelayClient(session, new RecordingListener(), TempFile()))
+            {
+                client.Start(new RecordingListener());
+                WaitFor(() => client.Connected, 10, "connected");
+                const int total = 30;
+                for (int i = 0; i < total; i++)
+                {
+                    var inner = new Dictionary<string, object> { { "type", i % 3 == 0 ? "thread" : i % 3 == 1 ? "feed" : "resolved" }, { "request_id", "n" + i } };
+                    if (i % 3 == 2) client.Send(inner, DateTime.UtcNow.AddMinutes(1), delegate { });
+                    else client.SendLive(inner);
+                }
+                WaitFor(() => server.Posts("messages").FindAll(p => Json.String(OpenAny(session, p), "request_id") != null && Json.String(OpenAny(session, p), "request_id").StartsWith("n")).Count == total, 15, "all posted");
+                int next = 0;
+                foreach (RecordedPost post in server.Posts("messages"))
+                {
+                    string id = Json.String(OpenAny(session, post), "request_id");
+                    if (id == null || !id.StartsWith("n")) continue;
+                    Expect(id == "n" + next, "post order: expected n" + next + ", got " + id);
+                    Dictionary<string, object> envelope = Json.ParseObject(post.Body);
+                    long ttl = Json.Long(envelope, "ttl", -1);
+                    Expect((next % 3 == 2) == (ttl > 0), "ttl of " + id + " is " + ttl);
+                    next++;
+                }
+            }
+        }
+
+        private static Dictionary<string, object> OpenAny(RelaySession session, RecordedPost post)
+        {
+            OpenedEnvelope opened = Envelope.Open(session.Directions, session.Pair, "phone", post.Body);
+            return opened.Accepted ? opened.Inner : null;
         }
 
         public static void PairingAccepted()

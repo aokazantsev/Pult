@@ -1,0 +1,6 @@
+{"type": "user", "uuid": "old1", "timestamp": "2026-11-07T09:00:05.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "Старая задача"}}
+{"type": "assistant", "uuid": "old2", "timestamp": "2026-11-07T09:00:06.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "text", "text": "Старый ответ"}]}}
+{"type": "user", "uuid": "p1", "timestamp": "2026-11-07T10:00:05.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "Поправь README"}}
+{"type": "assistant", "uuid": "p4", "timestamp": "2026-11-07T10:00:08.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "text", "text": "Сейчас посмотрю **README**."}]}}
+{"type": "user", "uuid": "c1", "timestamp": "2026-11-07T10:00:20.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "user", "content": "Что дальше?"}}
+{"type": "assistant", "uuid": "c2", "timestamp": "2026-11-07T10:00:21.000Z", "sessionId": "s-1", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "text", "text": "Дальше тесты."}]}}

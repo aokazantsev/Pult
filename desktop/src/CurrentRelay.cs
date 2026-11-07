@@ -38,5 +38,10 @@ namespace Pult
         {
             current.SendLive(inner);
         }
+
+        public void SendLive(Dictionary<string, object> inner, Action accepted)
+        {
+            current.SendLive(inner, accepted);
+        }
     }
 }
