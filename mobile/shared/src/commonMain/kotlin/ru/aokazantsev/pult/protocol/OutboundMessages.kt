@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 object OutboundMessages {
 
-    const val PROTOCOL_VERSION = 1
+    const val PROTOCOL_VERSION = 2L
 
     fun permissionResponse(requestId: String, allow: Boolean, reason: String = ""): JsonObject = JsonObject(
         mapOf(
@@ -36,7 +36,7 @@ object OutboundMessages {
     fun hello(): JsonObject = JsonObject(
         mapOf(
             "type" to JsonPrimitive("hello"),
-            "protocol" to JsonPrimitive(PROTOCOL_VERSION),
+            "protocol" to JsonArray(listOf(JsonPrimitive(PROTOCOL_VERSION))),
             "capabilities" to JsonArray(emptyList()),
         ),
     )

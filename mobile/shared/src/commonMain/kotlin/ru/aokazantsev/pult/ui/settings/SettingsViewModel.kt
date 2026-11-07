@@ -2,15 +2,20 @@ package ru.aokazantsev.pult.ui.settings
 
 import androidx.lifecycle.ViewModel
 import dev.zacsweers.metro.Inject
-import ru.aokazantsev.pult.relay.ConnectionSettings
-import ru.aokazantsev.pult.relay.SettingsStore
+import kotlinx.coroutines.flow.StateFlow
+import ru.aokazantsev.pult.di.AppInfo
+import ru.aokazantsev.pult.session.RelaySession
+import ru.aokazantsev.pult.session.SessionState
 
 @Inject
-class SettingsViewModel(private val store: SettingsStore) : ViewModel() {
+class SettingsViewModel(
+    appInfo: AppInfo,
+    private val session: RelaySession,
+) : ViewModel() {
 
-    val current: ConnectionSettings = store.settings.value ?: ConnectionSettings("", "", "")
+    val versionText: String = "Версия ${appInfo.versionName}"
 
-    fun save(serverUrl: String, pairId: String, token: String) {
-        store.save(ConnectionSettings(serverUrl = serverUrl.trim(), pairId = pairId.trim(), token = token.trim()))
-    }
+    val state: StateFlow<SessionState> = session.state
+
+    fun unpair() = session.unpair()
 }

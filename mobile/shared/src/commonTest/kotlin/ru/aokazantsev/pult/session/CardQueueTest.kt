@@ -5,14 +5,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import ru.aokazantsev.pult.protocol.Envelope
 import ru.aokazantsev.pult.protocol.InboundMessage
-import ru.aokazantsev.pult.protocol.InboundParser
+import ru.aokazantsev.pult.protocol.StrictJson
 import ru.aokazantsev.pult.protocol.Outcome
 
 class CardQueueTest {
 
     private fun envelope(id: String, inner: String) =
-        InboundParser.parseEnvelope("""{"id":"$id","from":"pc","ttl":120,"inner":$inner}""")!!
+        Envelope(id = id, from = "pc", ttl = 120, inner = StrictJson.parseObject(inner))
 
     private fun permission(id: String, requestId: String) =
         envelope(id, """{"type":"permission_request","request_id":"$requestId","tool":"Bash","summary":"ls"}""")

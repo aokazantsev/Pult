@@ -1,27 +1,13 @@
 package ru.aokazantsev.pult.protocol
 
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
 
 object InboundParser {
-
-    fun parseEnvelope(data: String): Envelope? {
-        val root = runCatching { Json.parseToJsonElement(data) as? JsonObject }.getOrNull() ?: return null
-        val id = root.string("id") ?: return null
-        val inner = root["inner"] as? JsonObject ?: return null
-        return Envelope(
-            id = id,
-            from = root.string("from").orEmpty(),
-            ttl = (root["ttl"] as? JsonPrimitive)?.intOrNull ?: 0,
-            inner = inner,
-        )
-    }
 
     fun parseInner(inner: JsonObject): InboundMessage {
         val type = inner.string("type") ?: return InboundMessage.Unknown(type = "")
@@ -32,8 +18,14 @@ object InboundParser {
             "resolved" -> resolved(inner)
             "status" -> status(inner)
             "mode" -> inner.string("mode")?.let(InboundMessage::Mode)
+            "hello" -> hello(inner)
             else -> null
         } ?: InboundMessage.Unknown(type)
+    }
+
+    private fun hello(inner: JsonObject): InboundMessage? {
+        val protocol = (inner["protocol"] as? JsonArray)?.map { JsonFields.integer(it) ?: return null } ?: return null
+        return InboundMessage.Hello(protocol)
     }
 
     private fun permission(inner: JsonObject): InboundMessage? {

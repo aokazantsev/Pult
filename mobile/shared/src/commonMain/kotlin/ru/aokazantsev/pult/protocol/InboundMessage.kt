@@ -39,5 +39,7 @@ sealed interface InboundMessage {
 
     data class Mode(val mode: String) : InboundMessage
 
+    data class Hello(val protocol: List<Long>) : InboundMessage
+
     data class Unknown(val type: String) : InboundMessage
 }

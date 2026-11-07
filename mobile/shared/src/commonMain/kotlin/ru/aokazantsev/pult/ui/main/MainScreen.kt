@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import ru.aokazantsev.pult.designsystem.component.PultCard
 import ru.aokazantsev.pult.designsystem.component.PultError
 import ru.aokazantsev.pult.designsystem.component.PultIconButton
 import ru.aokazantsev.pult.designsystem.component.PultScaffold
@@ -21,10 +22,11 @@ import ru.aokazantsev.pult.designsystem.theme.PultTheme
 import ru.aokazantsev.pult.session.ConnectionState
 
 @Composable
-fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
+fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit, onStartPairing: () -> Unit) {
     LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onScreenStart() }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onScreenStop() }
     val state by viewModel.state.collectAsState()
+    val pairInfo = state.pairInfo
     PultScaffold(
         topBar = {
             PultTopBar(
@@ -36,11 +38,27 @@ fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
             )
         },
     ) { padding ->
+        val connection = state.connection
         when {
-            state.connection == ConnectionState.NotConfigured -> PultError(
-                message = "Сервер не настроен",
-                actionText = "Настроить",
-                onAction = onOpenSettings,
+            pairInfo != null && !pairInfo.confirmed -> PairingWaitView(
+                info = pairInfo,
+                onCancel = viewModel::cancelPairing,
+                modifier = Modifier.padding(padding),
+            )
+            connection is ConnectionState.PairEnded -> PultError(
+                message = connection.reason,
+                actionText = "Сопрячь заново",
+                onAction = onStartPairing,
+                modifier = Modifier.padding(padding),
+            )
+            connection is ConnectionState.NotPaired -> PultError(
+                message = "Телефон не сопряжён с ПК",
+                actionText = "Сопрячь с ПК",
+                onAction = onStartPairing,
+                modifier = Modifier.padding(padding),
+            )
+            connection is ConnectionState.Incompatible -> PultError(
+                message = connection.reason,
                 modifier = Modifier.padding(padding),
             )
             state.cards.isEmpty() -> PultError(
@@ -52,6 +70,17 @@ fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
                 contentPadding = PaddingValues(PultTheme.spacing.l),
                 verticalArrangement = Arrangement.spacedBy(PultTheme.spacing.m),
             ) {
+                val notes = listOfNotNull(
+                    state.notice,
+                    state.dropped.takeIf { it > 0 }?.let { "Отброшено сообщений, не прошедших проверку: $it" },
+                )
+                if (notes.isNotEmpty()) {
+                    item(key = "notes") {
+                        PultCard {
+                            notes.forEach { PultText(text = it, color = PultTheme.colors.error) }
+                        }
+                    }
+                }
                 items(state.cards.asReversed(), key = { it.key }) { card ->
                     RequestCardView(
                         card = card,
@@ -67,9 +96,11 @@ fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
 }
 
 private fun connectionText(connection: ConnectionState): String = when (connection) {
-    ConnectionState.NotConfigured -> "не настроен"
+    ConnectionState.NotPaired -> "не сопряжён"
     ConnectionState.Idle -> "не на связи"
     ConnectionState.Connecting -> "подключение…"
     ConnectionState.Connected -> "на связи"
     is ConnectionState.Disconnected -> "обрыв: ${connection.reason}"
+    is ConnectionState.Incompatible -> "несовместимость версий"
+    is ConnectionState.PairEnded -> "пара разорвана"
 }

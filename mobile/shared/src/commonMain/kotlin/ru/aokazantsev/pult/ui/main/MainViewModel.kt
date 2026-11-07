@@ -28,4 +28,6 @@ class MainViewModel(
     fun choose(key: String, selected: List<String>) = session.answerChoice(key, selected)
 
     fun sendText(key: String, text: String) = session.answerText(key, text)
+
+    fun cancelPairing() = session.unpair()
 }

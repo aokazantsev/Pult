@@ -3,29 +3,17 @@ package ru.aokazantsev.pult.protocol
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 
 class InboundParserTest {
 
-    private fun inner(json: String) = InboundParser.parseEnvelope(
-        """{"v":1,"pair":"p","from":"pc","id":"e1","ts":1,"ttl":120,"inner":$json}""",
-    )!!.inner
+    private fun inner(json: String) = StrictJson.parseObject(json)
 
     @Test
-    fun envelopeWithoutIdOrInnerIsRejected() {
-        assertNull(InboundParser.parseEnvelope("""{"inner":{}}"""))
-        assertNull(InboundParser.parseEnvelope("""{"id":"x"}"""))
-        assertNull(InboundParser.parseEnvelope("not json"))
-    }
-
-    @Test
-    fun envelopeKeepsIdAndTtl() {
-        val envelope = assertNotNull(
-            InboundParser.parseEnvelope("""{"id":"e7","from":"pc","ttl":30,"inner":{"type":"mode","mode":"phone"}}"""),
+    fun helloIsParsed() {
+        assertEquals(
+            InboundMessage.Hello(listOf(2L)),
+            InboundParser.parseInner(inner("""{"type":"hello","protocol":[2],"capabilities":[]}""")),
         )
-        assertEquals("e7", envelope.id)
-        assertEquals(30, envelope.ttl)
     }
 
     @Test

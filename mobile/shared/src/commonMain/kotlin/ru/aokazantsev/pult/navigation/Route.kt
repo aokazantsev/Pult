@@ -7,5 +7,8 @@ sealed interface Route {
     data object Main : Route
 
     @Serializable
+    data object Scan : Route
+
+    @Serializable
     data object Settings : Route
 }

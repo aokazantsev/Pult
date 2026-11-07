@@ -16,11 +16,13 @@ import ru.aokazantsev.pult.designsystem.theme.PultTheme
 import ru.aokazantsev.pult.di.AppGraph
 import ru.aokazantsev.pult.navigation.Route
 import ru.aokazantsev.pult.ui.main.MainScreen
+import ru.aokazantsev.pult.ui.pair.PairScreen
 import ru.aokazantsev.pult.ui.settings.SettingsScreen
 
 @Composable
 fun PultApp(
     graph: AppGraph,
+    qrScanner: @Composable (modifier: Modifier, onScanned: (String) -> Unit) -> Unit,
     onThemeResolved: (darkTheme: Boolean) -> Unit,
     onBackgroundResolved: (argb: Int) -> Unit,
 ) {
@@ -36,6 +38,15 @@ fun PultApp(
                     MainScreen(
                         viewModel = viewModel { graph.mainViewModel() },
                         onOpenSettings = { navController.navigate(Route.Settings) },
+                        onStartPairing = { navController.navigate(Route.Scan) },
+                    )
+                }
+                composable<Route.Scan> {
+                    PairScreen(
+                        viewModel = viewModel { graph.pairViewModel() },
+                        scanner = qrScanner,
+                        onBack = { navController.popBackStack() },
+                        onPaired = { navController.popBackStack() },
                     )
                 }
                 composable<Route.Settings> {

@@ -18,7 +18,7 @@ class CardQueue(private val processedLimit: Int = PROCESSED_LIMIT) {
             is InboundMessage.Request -> addRequest(message.requestId, message)
             is InboundMessage.Unknown -> addRequest("unknown:${envelope.id}", message)
             is InboundMessage.Resolved -> close(message)
-            is InboundMessage.Status, is InboundMessage.Mode -> Unit
+            is InboundMessage.Status, is InboundMessage.Mode, is InboundMessage.Hello -> Unit
         }
         return true
     }

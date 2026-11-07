@@ -28,6 +28,10 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.camerax.camera2)
+            implementation(libs.camerax.lifecycle)
+            implementation(libs.camerax.view)
+            implementation(libs.zxing.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

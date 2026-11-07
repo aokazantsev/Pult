@@ -4,6 +4,8 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.ktor.client.HttpClient
+import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.prepareGet
@@ -13,15 +15,8 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
-import io.ktor.http.content.TextContent
+import io.ktor.http.content.ByteArrayContent
 import io.ktor.utils.io.readLine
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlin.time.Clock
-import ru.aokazantsev.pult.protocol.OutboundMessages
 import ru.aokazantsev.pult.protocol.SseEvent
 import ru.aokazantsev.pult.protocol.SseParser
 
@@ -29,16 +24,28 @@ import ru.aokazantsev.pult.protocol.SseParser
 @ContributesBinding(AppScope::class)
 class KtorRelayApi(private val client: HttpClient) : RelayApi {
 
+    override suspend fun get(url: String, headers: Map<String, String>): RelayResponse =
+        client.get(url) { applyHeaders(headers) }.toRelayResponse()
+
+    override suspend fun post(url: String, headers: Map<String, String>, body: ByteArray): RelayResponse =
+        client.post(url) {
+            applyHeaders(headers)
+            setBody(ByteArrayContent(body, ContentType.Application.Json))
+        }.toRelayResponse()
+
     override suspend fun openStream(
-        settings: ConnectionSettings,
+        url: String,
+        headers: Map<String, String>,
         onOpen: suspend () -> Unit,
         onEvent: suspend (SseEvent) -> Unit,
     ) {
-        client.prepareGet(url(settings, "stream")) {
-            header(HttpHeaders.Authorization, "Bearer ${settings.token}")
+        client.prepareGet(url) {
+            applyHeaders(headers)
             header(HttpHeaders.Accept, "text/event-stream")
         }.execute { response ->
-            ensureSuccess(response)
+            if (response.status.value !in 200..299) {
+                throw RelayException(response.status.value, response.bodyAsText())
+            }
             onOpen()
             val channel = response.bodyAsChannel()
             val parser = SseParser()
@@ -49,46 +56,9 @@ class KtorRelayApi(private val client: HttpClient) : RelayApi {
         }
     }
 
-    override suspend fun postMessage(settings: ConnectionSettings, id: String, ttl: Int, inner: JsonObject) {
-        val envelope = JsonObject(
-            mapOf(
-                "v" to JsonPrimitive(OutboundMessages.PROTOCOL_VERSION),
-                "pair" to JsonPrimitive(settings.pairId),
-                "from" to JsonPrimitive("phone"),
-                "id" to JsonPrimitive(id),
-                "ts" to JsonPrimitive(Clock.System.now().epochSeconds),
-                "ttl" to JsonPrimitive(ttl),
-                "inner" to inner,
-            ),
-        )
-        postJson(settings, "messages", envelope)
+    private fun HttpRequestBuilder.applyHeaders(headers: Map<String, String>) {
+        headers.forEach { (name, value) -> header(name, value) }
     }
 
-    override suspend fun postAcks(settings: ConnectionSettings, ids: List<String>) {
-        postJson(settings, "acks", JsonObject(mapOf("ids" to JsonArray(ids.map(::JsonPrimitive)))))
-    }
-
-    override suspend fun ping(settings: ConnectionSettings) {
-        postJson(settings, "ping", JsonObject(emptyMap()))
-    }
-
-    private suspend fun postJson(settings: ConnectionSettings, path: String, body: JsonObject) {
-        val response = client.post(url(settings, path)) {
-            header(HttpHeaders.Authorization, "Bearer ${settings.token}")
-            setBody(TextContent(body.toString(), ContentType.Application.Json))
-        }
-        ensureSuccess(response)
-    }
-
-    private suspend fun ensureSuccess(response: HttpResponse) {
-        if (response.status.value in 200..299) return
-        val code = runCatching {
-            (Json.parseToJsonElement(response.bodyAsText()) as? JsonObject)?.get("error")
-                ?.let { (it as? JsonPrimitive)?.contentOrNull }
-        }.getOrNull()
-        throw RelayException(status = response.status.value, code = code)
-    }
-
-    private fun url(settings: ConnectionSettings, path: String): String =
-        "${settings.baseUrl}/v1/pairs/${settings.pairId}/$path"
+    private suspend fun HttpResponse.toRelayResponse() = RelayResponse(status.value, bodyAsText())
 }
