@@ -27,6 +27,13 @@ android {
         }
     }
 
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("standard") {
+            dimension = "distribution"
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true

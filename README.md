@@ -28,8 +28,9 @@
   собирает `Pult.exe`; без `nostart` собранная программа ещё и запускается. Журнал и настройки — в
   `%LOCALAPPDATA%\Pult` (`log.txt`, `settings.txt`, порт приёма хуков — `hook_port`, по умолчанию 47652).
 - **mobile** (Android, JDK 17 и Android SDK, путь к SDK — `sdk.dir` в `mobile\local.properties`, слеши прямые): из папки
-  `mobile` — `./gradlew assembleDebug`, APK — `app/build/outputs/apk/debug/app-debug.apk`; пакет отладочной сборки —
-  `ru.aokazantsev.pult.debug`.
+  `mobile` — `./gradlew assembleStandardDebug`, APK — `app/build/outputs/apk/standard/debug/app-standard-debug.apk`; пакет
+  отладочной сборки — `ru.aokazantsev.pult.debug`. Единственный флейвор `standard` нужен варианту `standardDebug`: так его
+  принимает `slots.py apk --variant standardDebug` (кладёт APK в папку артефактов проекта).
 
 ## Документы
 
