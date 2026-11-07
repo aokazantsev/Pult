@@ -64,6 +64,7 @@ def make_handler(core):
             if length < 0:
                 raise RelayError(400, "bad_length")
             if length > limit:
+                self.rfile.read(min(length, limit * 4))
                 raise RelayError(413, "too_large")
             return self.rfile.read(length)
 
@@ -217,12 +218,16 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address):
+        if not isinstance(sys.exc_info()[1], OSError):
+            super().handle_error(request, client_address)
+
 
 def create_server(core):
     return Server((core.config.host, core.config.port), make_handler(core))
 
 
 def serve_in_thread(server):
-    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t = threading.Thread(target=lambda: server.serve_forever(poll_interval=0.02), daemon=True)
     t.start()
     return t

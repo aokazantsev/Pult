@@ -212,6 +212,7 @@ class Sse:
         self.events = queue.Queue()
         self.conn = http_client.connection()
         self.conn.request("GET", http_client.prefix + path, headers=headers)
+        self.sock = self.conn.sock
         self.response = self.conn.getresponse()
         self.status = self.response.status
         self.error = None
@@ -247,8 +248,9 @@ class Sse:
 
     def close(self):
         try:
-            if self.conn.sock:
-                self.conn.sock.shutdown(2)
+            if self.sock:
+                self.sock.shutdown(2)
+            self.response.close()
             self.conn.close()
         except OSError:
             pass
