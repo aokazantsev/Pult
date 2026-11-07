@@ -426,6 +426,8 @@ namespace Pult
                     phoneCompatible = false;
                     Notice(ServerInfo.Incompatibility("Телефон", new object[] { opened.UnsupportedVersion }));
                 }
+                string droppedId = Json.String(payload, "id");
+                if (StrictJson.IsIdentifier(droppedId)) Enqueue(OutgoingMessage.Ack(new List<string> { droppedId }), false);
                 return;
             }
             if (processed.Add(opened.Id))

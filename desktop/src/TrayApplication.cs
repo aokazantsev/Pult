@@ -48,7 +48,9 @@ namespace Pult
             if (secret != null)
             {
                 listener = new HookListener(settings.HookPort, secret, broker);
-                listenerItem.Text = StartListener(settings.HookPort);
+                listener.StateChanged += () => Post(() => listenerItem.Text = ListenerText(settings.HookPort));
+                listener.Start();
+                listenerItem.Text = ListenerText(settings.HookPort);
             }
             else
             {
@@ -143,17 +145,13 @@ namespace Pult
             Post(() => Notify(text));
         }
 
-        private string StartListener(int port)
+        private string ListenerText(int port)
         {
-            try
+            switch (listener.State)
             {
-                listener.Start();
-                return "Приём хуков: 127.0.0.1:" + port;
-            }
-            catch (SocketException error)
-            {
-                AppLog.Append("hook listener not started on port " + port + ": " + error.Message);
-                return "Порт " + port + " занят — хуки не принимаются";
+                case HookListenerState.Listening: return "Приём хуков: 127.0.0.1:" + port;
+                case HookListenerState.Retrying: return "Порт " + port + " занят — повторяю, хуки пока не принимаются";
+                default: return "Порт " + port + " занят — хуки не принимаются";
             }
         }
 

@@ -145,10 +145,12 @@ namespace Pult.Tests
                 server.Queue("event: message\ndata: " + good + "\n\n");
                 client.Start(listener);
                 WaitFor(() => listener.Messages == 1, 10, "good envelope delivered");
-                WaitFor(() => server.Posts("acks").Count == 1, 10, "good envelope acked");
+                WaitFor(() => server.Posts("acks").Count == 3, 10, "all three envelopes acked");
                 Thread.Sleep(300);
                 Expect(listener.Messages == 1, "own and tampered envelopes dropped");
-                Expect(server.Posts("acks").Count == 1, "dropped envelopes are not acked");
+                Expect(server.Posts("acks").Count == 3, "no extra acks");
+                string acked = string.Join(" ", server.Posts("acks").ConvertAll(p => p.Body));
+                Expect(acked.Contains("pc-x") && acked.Contains("ph-2"), "dropped envelopes are acked by id");
             }
         }
 

@@ -58,6 +58,10 @@ namespace Pult.Tests
             Run("request waits for the server and is delivered", RelayTests.WaitsForServerAndDeliversQueuedMessage);
             Run("phone message not repeated after restart", RelayTests.PhoneMessageIsNotRepeatedAfterRestart);
             Run("forged envelopes are dropped", RelayTests.ForgedEnvelopesAreDropped);
+            Run("hook port taken at once", ListenerTests.BindsAtOnce);
+            Run("hook port retried until free", ListenerTests.RetriesUntilFree);
+            Run("hook port busy for good fails", ListenerTests.FailsWhenStayingBusy);
+            Run("hook port held by live listener is not shared", ListenerTests.BusyPortIsNotShared);
             Run("pairing accepted", RelayTests.PairingAccepted);
             Run("pairing rejected", RelayTests.PairingRejected);
             Run("stale stream logs in again, replay retried", RelayTests.StaleStreamLogsInAgain);
