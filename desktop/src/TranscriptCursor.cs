@@ -25,9 +25,98 @@ namespace Pult
             return new TranscriptCursor(path, Math.Max(0, offset));
         }
 
+        public static TranscriptCursor FromTime(string path, DateTime sinceUtc)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            return new TranscriptCursor(path, OffsetBefore(path, sinceUtc));
+        }
+
         public long Offset
         {
-            get { return offset; }
+            get { return offset - partial.Length; }
+        }
+
+        private static long OffsetBefore(string path, DateTime sinceUtc)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists) return 0;
+                if (info.LastWriteTimeUtc < sinceUtc) return info.Length;
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    long low = 0;
+                    long high = stream.Length;
+                    for (int step = 0; step < 40 && high - low > SeekMargin; step++)
+                    {
+                        long middle = low + (high - low) / 2;
+                        DateTime? time = TimeAfter(stream, middle);
+                        if (time.HasValue && time.Value < sinceUtc) low = middle;
+                        else high = middle;
+                    }
+                    return Math.Max(0, LineStart(stream, Math.Max(0, low - SeekMargin)));
+                }
+            }
+            catch (IOException)
+            {
+                return 0;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return 0;
+            }
+            catch (ArgumentException)
+            {
+                return 0;
+            }
+            catch (NotSupportedException)
+            {
+                return 0;
+            }
+        }
+
+        private const int SeekMargin = 1024 * 1024;
+        private const int ProbeLines = 8;
+        private const int ProbeBytes = 4 * 1024 * 1024;
+
+        private static long LineStart(Stream stream, long position)
+        {
+            if (position == 0) return 0;
+            stream.Seek(position, SeekOrigin.Begin);
+            int value;
+            long current = position;
+            while ((value = stream.ReadByte()) >= 0)
+            {
+                current++;
+                if (value == '\n') return current;
+            }
+            return current;
+        }
+
+        private static DateTime? TimeAfter(Stream stream, long position)
+        {
+            long start = LineStart(stream, position);
+            stream.Seek(start, SeekOrigin.Begin);
+            var line = new List<byte>();
+            int read = 0;
+            int lines = 0;
+            int value;
+            while (lines < ProbeLines && read < ProbeBytes && (value = stream.ReadByte()) >= 0)
+            {
+                read++;
+                if (value != '\n')
+                {
+                    line.Add((byte)value);
+                    continue;
+                }
+                lines++;
+                Dictionary<string, object> record = Json.TryParseObject(Encoding.UTF8.GetString(line.ToArray()));
+                line.Clear();
+                string stamp = Json.String(record, "timestamp");
+                DateTime time;
+                if (stamp != null && DateTime.TryParse(stamp, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out time)) return time;
+            }
+            return null;
         }
 
         public string Path

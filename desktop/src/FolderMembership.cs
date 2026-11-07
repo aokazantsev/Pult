@@ -80,7 +80,38 @@ namespace Pult
             {
                 if (Normalize(folder) != Normalize(match) && Distort(folder) == Distort(match)) return null;
             }
+            if (!string.Equals(directory, Distort(match), StringComparison.OrdinalIgnoreCase) && SiblingClaims(match, directory)) return null;
             return match;
+        }
+
+        private static bool SiblingClaims(string folder, string directory)
+        {
+            string own = Normalize(folder);
+            try
+            {
+                string parent = Path.GetDirectoryName(own);
+                if (string.IsNullOrEmpty(parent) || !Directory.Exists(parent)) return false;
+                foreach (string sibling in Directory.GetDirectories(parent))
+                {
+                    if (string.Equals(Normalize(sibling), own, StringComparison.OrdinalIgnoreCase)) continue;
+                    string distorted = Distort(sibling);
+                    if (distorted.Length <= Distort(own).Length) continue;
+                    if (string.Equals(directory, distorted, StringComparison.OrdinalIgnoreCase) || directory.StartsWith(distorted + "-", StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                return true;
+            }
+            return false;
         }
     }
 }

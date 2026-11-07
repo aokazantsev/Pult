@@ -45,22 +45,30 @@ namespace Pult
 
         public static Dictionary<string, object> UpdatedInput(Dictionary<string, object> toolInput, Dictionary<string, object> request, Dictionary<string, object> response)
         {
-            var updated = new Dictionary<string, object>(toolInput);
-            var answers = new Dictionary<string, object>();
+            var original = new List<object>(Items(Json.Value(toolInput, "questions")));
             var byQuestion = new Dictionary<string, Dictionary<string, object>>();
             foreach (object item in Items(Json.Value(response, "answers"))) byQuestion[Json.String((Dictionary<string, object>)item, "question")] = (Dictionary<string, object>)item;
+            var answers = new Dictionary<string, object>();
+            int number = 0;
             foreach (object item in Items(Json.Value(request, "questions")))
             {
                 var question = (Dictionary<string, object>)item;
+                var source = (Dictionary<string, object>)original[number++];
+                var sourceOptions = new List<object>(Items(Json.Value(source, "options")));
                 Dictionary<string, object> answer = byQuestion[Json.String(question, "id")];
                 var labels = new Dictionary<string, string>();
-                foreach (object option in Items(Json.Value(question, "options"))) labels[Json.String((Dictionary<string, object>)option, "id")] = Json.String((Dictionary<string, object>)option, "label");
+                int optionNumber = 0;
+                foreach (object option in Items(Json.Value(question, "options")))
+                {
+                    labels[Json.String((Dictionary<string, object>)option, "id")] = Json.String((Dictionary<string, object>)sourceOptions[optionNumber++], "label");
+                }
                 var parts = new List<string>();
                 foreach (object id in Items(Json.Value(answer, "selected"))) parts.Add(labels[(string)id]);
                 string other = Json.String(answer, "other");
                 if (other != null) parts.Add(other.Trim());
-                answers[Json.String(question, "question")] = string.Join(", ", parts.ToArray());
+                answers[Json.String(source, "question")] = string.Join(", ", parts.ToArray());
             }
+            var updated = new Dictionary<string, object>(toolInput);
             updated["answers"] = answers;
             return updated;
         }

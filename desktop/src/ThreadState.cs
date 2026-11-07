@@ -11,7 +11,6 @@ namespace Pult
         public string Id;
         public string Title = "…";
         public string Folder = "…";
-        public string Origin;
         public string Status = "unknown";
         public bool PcDialog;
         public string ErrorCode;
@@ -70,7 +69,6 @@ namespace Pult
                 { "transcripts", transcripts },
                 { "ring", new List<object>(Ring) }
             };
-            Put(map, "origin", Origin);
             Put(map, "error", ErrorCode);
             Put(map, "parent", ParentId);
             Put(map, "fork_title", ForkTitle);
@@ -93,7 +91,6 @@ namespace Pult
                 Id = id,
                 Title = Json.String(map, "title") ?? "…",
                 Folder = Json.String(map, "folder") ?? "…",
-                Origin = Json.String(map, "origin"),
                 Status = Json.String(map, "status") ?? "unknown",
                 PcDialog = Json.Bool(map, "pc_dialog"),
                 ErrorCode = Json.String(map, "error"),

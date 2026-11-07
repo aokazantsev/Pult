@@ -13,7 +13,7 @@ namespace Pult
         public static readonly TimeSpan HookMargin = TimeSpan.FromSeconds(5);
         public const int RecentOutcomesLimit = 50;
         public const int ResolvedTtlSeconds = 900;
-        public const int DefaultSnapshotDelayMs = 300;
+        public const int DefaultSnapshotDelayMs = 1000;
         public const int DefaultTickMs = 1000;
         private const int ClosedOutcomesLimit = 500;
         private const int LastMessageLimit = 4000;
@@ -36,6 +36,7 @@ namespace Pult
         private readonly List<string> helloCapabilities = new List<string>();
         private readonly Timer tick;
         private Timer snapshotTimer;
+        private bool snapshotPending;
         private ControlMode mode = ControlMode.Phone;
         private bool stopped;
         private bool choiceDelivery = true;
@@ -172,7 +173,9 @@ namespace Pult
                 hub.SyncAll();
                 foreach (PendingRequest request in pending.Where(r => r.Ghost).ToList())
                 {
-                    if (DateTime.UtcNow >= request.DeadlineUtc) CloseGhost(request, Outcome.Expired, "expired");
+                    TranscriptSignals signals = request.Transcript == null ? new TranscriptSignals() : TranscriptSignals.Scan(request.Transcript.ReadNew());
+                    if (signals.DeniedOnPc) CloseGhost(request, Outcome.ResolvedOnPc, "denied on pc");
+                    else if (DateTime.UtcNow >= request.DeadlineUtc) CloseGhost(request, Outcome.Expired, "expired");
                 }
             }
         }
@@ -266,7 +269,11 @@ namespace Pult
                     var feed = (Dictionary<string, object>)item;
                     helloFeeds[Json.String(feed, "thread")] = Convert.ToInt64(feed["seq"], CultureInfo.InvariantCulture);
                 }
-                foreach (ThreadState state in hub.All()) state.PhoneSent = 0;
+                foreach (ThreadState state in hub.All())
+                {
+                    long seq;
+                    state.PhoneSent = helloFeeds.TryGetValue(state.Id, out seq) ? seq : 0;
+                }
                 SaveSession();
             }
             ScheduleSnapshot();
@@ -281,10 +288,17 @@ namespace Pult
             }
             lock (gate)
             {
-                if (stopped) return;
-                if (snapshotTimer == null) snapshotTimer = new Timer(state => QueueSnapshot(), null, Timeout.Infinite, Timeout.Infinite);
+                if (stopped || snapshotPending) return;
+                snapshotPending = true;
+                if (snapshotTimer == null) snapshotTimer = new Timer(state => SnapshotDue(), null, Timeout.Infinite, Timeout.Infinite);
                 snapshotTimer.Change(snapshotDelayMs, Timeout.Infinite);
             }
+        }
+
+        private void SnapshotDue()
+        {
+            lock (gate) snapshotPending = false;
+            QueueSnapshot();
         }
 
         public void QueueSnapshot()
@@ -358,6 +372,7 @@ namespace Pult
                 Dictionary<string, object> input = ToolInputs.Trim(hookEvent.ToolInput);
                 if (input != null) message["input"] = input;
             }
+            FeedLimits.Fit(message);
             var request = new PendingRequest(id, choice ? RequestKind.Choice : RequestKind.Permission, hookEvent, Deadline(hookLimit), message, thread);
             request.Summary = choice ? ChoiceSummary(message) : MessageRules.Cut(hookEvent.ToolName + ": " + (string)message["summary"], OutcomeSummaryLimit);
             if (choice && !choiceDelivery)
@@ -366,7 +381,7 @@ namespace Pult
                 channel.Deliver(null);
                 return;
             }
-            Wait(request, channel);
+            if (Wait(request, channel) == Outcome.Answered) hub.SetStatus(thread, "working");
         }
 
         private void HandleStop(HookEvent hookEvent, TimeSpan hookLimit, IHookChannel channel, ThreadState thread)
@@ -454,6 +469,7 @@ namespace Pult
             request.Cause = cause;
             pending.Remove(request);
             RememberClosed(request);
+            AdjustDialogMark(request, outcome);
             SaveSession();
             AppLog.Append("request " + request.Id + ": " + outcome + " (" + cause + ")");
             if (request.NotifyPhone) SendResolved(request.Id, outcome);

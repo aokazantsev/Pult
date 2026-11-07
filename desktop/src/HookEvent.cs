@@ -57,7 +57,14 @@ namespace Pult
 
         public string ToolInputKey
         {
-            get { return Json.Write(ToolInput); }
+            get
+            {
+                var map = ToolInput as Dictionary<string, object>;
+                if (map == null || ToolName != "AskUserQuestion" || !map.ContainsKey("answers")) return Json.Write(ToolInput);
+                var questionsOnly = new Dictionary<string, object>(map);
+                questionsOnly.Remove("answers");
+                return Json.Write(questionsOnly);
+            }
         }
 
         public string Source

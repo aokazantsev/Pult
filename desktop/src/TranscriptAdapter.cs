@@ -36,6 +36,8 @@ namespace Pult
         public const string InterruptedForToolUse = "[Request interrupted by user for tool use]";
         public const string Interrupted = "[Request interrupted by user]";
         private static readonly Regex CrossSession = new Regex(@"^\s*<cross-session-message\s+from=""([^""]+)""[^>]*>(.*?)</cross-session-message>\s*$", RegexOptions.Singleline | RegexOptions.CultureInvariant);
+        public const string CompactNotice = "Контекст сжат";
+        public const string SystemReminder = "<system-reminder>";
         public const string AttachmentNotice = "вложение не показано";
         private static readonly HashSet<string> Silent = new HashSet<string>(StringComparer.Ordinal) { "attachment", "system", "progress", "summary" };
 
@@ -94,6 +96,21 @@ namespace Pult
             object content = Json.Value(message, "content");
             var text = content as string;
             bool meta = Json.Bool(record, "isMeta");
+            Dictionary<string, object> origin = Json.Object(record, "origin");
+            string originKind = Json.String(origin, "kind");
+            if (originKind == "peer" && (Json.Bool(origin, "handback") || Json.String(origin, "senderTaskId") != null)) return;
+            if (originKind == "peer")
+            {
+                Emit(context, PeerEntry(Json.String(origin, "from") ?? "", Json.String(origin, "body") ?? text ?? "", at, context, Json.String(origin, "name")));
+                return;
+            }
+            if (originKind != null && originKind != "human") return;
+            if (Json.Bool(record, "isCompactSummary"))
+            {
+                Emit(context, Notice(CompactNotice, at));
+                return;
+            }
+            if (Json.Bool(record, "isVisibleInTranscriptOnly")) return;
             if (text != null)
             {
                 if (text.StartsWith(StopFeedbackPrefix, StringComparison.Ordinal))
@@ -129,11 +146,11 @@ namespace Pult
         private static void AddText(string text, long at, AdapterContext context)
         {
             string trimmed = text.Trim();
-            if (trimmed.Length == 0) return;
+            if (trimmed.Length == 0 || trimmed.StartsWith(SystemReminder, StringComparison.Ordinal)) return;
             Match peer = CrossSession.Match(text);
             if (peer.Success)
             {
-                Emit(context, PeerEntry(peer.Groups[1].Value, peer.Groups[2].Value.Trim(), at, context));
+                Emit(context, PeerEntry(peer.Groups[1].Value, peer.Groups[2].Value.Trim(), at, context, null));
                 return;
             }
             if (trimmed == InterruptedForToolUse) Emit(context, Notice("Запрос прерван на ПК", at));
@@ -168,12 +185,12 @@ namespace Pult
             return Finish(entry);
         }
 
-        private static Dictionary<string, object> PeerEntry(string from, string body, long at, AdapterContext context)
+        private static Dictionary<string, object> PeerEntry(string from, string body, long at, AdapterContext context, string name)
         {
             string[] who = context.PeerResolver(from);
             var entry = new Dictionary<string, object> { { "kind", "peer" }, { "at", at }, { "direction", "in" } };
-            string title = who != null && who.Length > 0 && !string.IsNullOrWhiteSpace(who[0]) ? who[0] : "…";
-            entry["peer_title"] = MessageRules.Cut(new string(title.Select(c => c == '\n' || c == '\r' ? ' ' : c).ToArray()).Trim(), 120);
+            string title = who != null && who.Length > 0 && !string.IsNullOrWhiteSpace(who[0]) && who[0] != "…" ? who[0] : string.IsNullOrWhiteSpace(name) ? "…" : name;
+            SetText(entry, "peer_title", new string(title.Select(c => c == '\n' || c == '\r' ? ' ' : c).ToArray()).Trim(), 120);
             SetText(entry, "text", body, FeedLimits.TextLimit);
             if (who != null && who.Length > 1 && StrictJson.IsIdentifier(who[1])) entry["peer"] = who[1];
             return Finish(entry);
@@ -221,11 +238,13 @@ namespace Pult
                 { "kind", "tool_call" },
                 { "at", at },
                 { "call", CallId(Json.String(block, "id"), context) },
-                { "tool", MessageRules.Cut(tool, 64) }
             };
+            SetText(entry, "tool", tool, 64);
             SetText(entry, "summary", ToolInputs.Summary(tool, input), ToolInputs.SummaryLimit);
-            Dictionary<string, object> trimmed = ToolInputs.Trim(input);
+            bool cut;
+            Dictionary<string, object> trimmed = ToolInputs.Trim(input, out cut);
             if (trimmed != null) entry["input"] = trimmed;
+            if (cut) entry["truncated"] = true;
             return Finish(entry);
         }
 

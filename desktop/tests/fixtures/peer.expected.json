@@ -5,7 +5,7 @@
    "kind": "peer",
    "at": 1794045605,
    "direction": "in",
-   "peer_title": "…",
+   "peer_title": "t5-links",
    "text": "Готово: 3 битые ссылки"
   },
   {
@@ -13,6 +13,26 @@
    "kind": "user",
    "at": 1794045606,
    "text": "обычное <cross-session-message> внутри текста"
+  },
+  {
+   "seq": 3,
+   "kind": "user",
+   "at": 1794045608,
+   "text": "Продолжай"
+  },
+  {
+   "seq": 4,
+   "kind": "notice",
+   "at": 1794045609,
+   "text": "Контекст сжат"
+  },
+  {
+   "seq": 5,
+   "kind": "peer",
+   "at": 1794045610,
+   "direction": "in",
+   "peer_title": "…",
+   "text": "старая форма"
   }
  ]
 }

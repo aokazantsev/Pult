@@ -12,6 +12,7 @@ namespace Pult
         private const int NegativeLimit = 1000;
         private const int StartCwdLimit = 2000;
         private const int PhoneTextLimit = 20;
+        private const int ChunksPerSync = 4;
 
         private readonly object gate;
         private readonly IRelay relay;
@@ -55,16 +56,6 @@ namespace Pult
             }
         }
 
-        public bool Restored { get; private set; }
-
-        public DateTime PairedAtUtc
-        {
-            get
-            {
-                lock (gate) return pairedAtUtc;
-            }
-        }
-
         public string SessionDirectory
         {
             get { return pair == null ? null : Path.Combine(stateRoot, "state-" + pair); }
@@ -84,7 +75,6 @@ namespace Pult
                 pair = pairId;
                 pairedAtUtc = pairedAt;
                 folders = new List<string>(marked);
-                Restored = restored;
                 stateLost = false;
                 if (!restored) return;
                 Dictionary<string, object> session = StateFiles.Read(SessionFile);
@@ -112,14 +102,6 @@ namespace Pult
                 active = false;
                 pair = null;
                 if (directory != null) StateFiles.DeleteDirectory(directory);
-            }
-        }
-
-        public List<string> Folders
-        {
-            get
-            {
-                lock (gate) return new List<string>(folders);
             }
         }
 
@@ -184,7 +166,6 @@ namespace Pult
                 {
                     Id = Base64Url.Encode(PairCrypto.RandomBytes(16)),
                     Folder = FolderMembership.NameOf(marked),
-                    Origin = marked,
                     HostId = host ?? (meta == null ? null : meta.LocalId),
                     DesktopApp = host != null,
                     LastEventTicks = DateTime.UtcNow.Ticks
@@ -214,7 +195,7 @@ namespace Pult
                 string transcript = hookEvent.TranscriptPath;
                 if (!string.IsNullOrEmpty(transcript) && !state.Cursors.Any(c => string.Equals(c.Path, transcript, StringComparison.OrdinalIgnoreCase)))
                 {
-                    state.Cursors.Add(TranscriptCursor.FromOffset(transcript, 0));
+                    state.Cursors.Add(TranscriptCursor.FromTime(transcript, pairedAtUtc));
                     while (state.Cursors.Count > ThreadState.MaxTranscripts) state.Cursors.RemoveAt(0);
                 }
                 string status = StatusFor(hookEvent.Name);
@@ -357,13 +338,8 @@ namespace Pult
                 known[feed.Key] = Math.Max(feed.Value, state.PhoneSent);
             }
             var plan = new List<TailThread>();
-            foreach (ThreadState state in byId.Values)
-            {
-                long entryBytes = 1;
-                if (state.Ring.Count > 0) entryBytes = Math.Max(1, state.Ring.Sum(e => (long)MessageRules.Size(e)) / state.Ring.Count);
-                plan.Add(new TailThread { Thread = state.Id, LastSeq = state.LastSeq, OpenRequest = HasOpenRequest(state.Id), LastEvent = state.LastEventTicks, EntryBytes = entryBytes });
-            }
-            Dictionary<string, long[]> ranges = TailPlan.Compute(known, plan);
+            foreach (ThreadState state in byId.Values) plan.Add(new TailThread { Thread = state.Id, LastSeq = state.LastSeq, OpenRequest = HasOpenRequest(state.Id), LastEvent = state.LastEventTicks });
+            Dictionary<string, long[]> ranges = TailPlan.Compute(known, plan, (thread, first, last) => TailCost(byId[thread.Thread], first, last));
             foreach (TailThread thread in plan.OrderBy(t => t.OpenRequest ? 0 : 1).ThenByDescending(t => t.LastEvent))
             {
                 long[] range = ranges[thread.Thread];
@@ -373,6 +349,25 @@ namespace Pult
                 if (entries.Count > 0) SendFeed(state, entries);
             }
         }
+
+        private static long TailCost(ThreadState state, long first, long last)
+        {
+            long bytes = 0;
+            int entries = 0;
+            foreach (Dictionary<string, object> entry in state.Ring)
+            {
+                long seq = Seq(entry);
+                if (seq < first || seq > last) continue;
+                bytes += MessageRules.Size(entry) + 1;
+                entries++;
+            }
+            long missing = (last - first + 1) - entries;
+            if (missing > 0) bytes += missing * MessageRules.ItemBytes;
+            long messages = bytes / MessageRules.MessageBytes + 1;
+            return bytes + messages * FeedHeaderBytes;
+        }
+
+        private const int FeedHeaderBytes = 200;
 
         private static Dictionary<string, object> NewPart(string snapshotId, int number, string mode)
         {
@@ -420,9 +415,9 @@ namespace Pult
             var context = new AdapterContext { PairedAtUtc = pairedAtUtc, Issued = issued, CallIds = state.CallIds, PhoneTexts = state.PhoneTexts, PeerResolver = ResolvePeer };
             foreach (TranscriptCursor cursor in state.Cursors)
             {
-                int guard = 64;
+                int guard = ChunksPerSync;
                 List<string> lines;
-                while ((lines = cursor.ReadNew()).Count > 0 && guard-- > 0) TranscriptAdapter.Parse(lines, context);
+                while (guard-- > 0 && (lines = cursor.ReadNew()).Count > 0) TranscriptAdapter.Parse(lines, context);
             }
             if (context.CustomTitle != null) state.TranscriptTitle = context.CustomTitle;
             if (state.FirstUser == null && context.FirstUserText != null) state.FirstUser = context.FirstUserText;
@@ -469,6 +464,7 @@ namespace Pult
 
         private int Flush(ThreadState state, List<object> batch)
         {
+            long first = Convert.ToInt64(((Dictionary<string, object>)batch[0])["seq"]);
             long last = Convert.ToInt64(((Dictionary<string, object>)batch[batch.Count - 1])["seq"]);
             var message = new Dictionary<string, object> { { "type", "feed" }, { "thread", state.Id }, { "entries", new List<object>(batch) } };
             ThreadState target = state;
@@ -476,7 +472,7 @@ namespace Pult
             {
                 lock (gate)
                 {
-                    if (relay.PhoneStreamOpen && last > target.PhoneSent) target.PhoneSent = last;
+                    if (relay.PhoneStreamOpen && first <= target.PhoneSent + 1 && last > target.PhoneSent) target.PhoneSent = last;
                 }
             });
             batch.Clear();
@@ -523,7 +519,6 @@ namespace Pult
             bySession.Clear();
             negative.Clear();
             issued.Clear();
-            Restored = false;
         }
 
         private bool MakeRoom()
@@ -601,7 +596,6 @@ namespace Pult
             {
                 Id = Base64Url.Encode(PairCrypto.RandomBytes(16)),
                 Folder = FolderMembership.NameOf(marked),
-                Origin = marked,
                 HostId = localId,
                 DesktopApp = true,
                 MetaTitle = string.IsNullOrWhiteSpace(meta.Title) ? fallbackTitle : meta.Title,
@@ -609,9 +603,9 @@ namespace Pult
             };
             parent.Title = parent.PickTitle();
             Register(parent);
-            if (stateLost) AppendEntries(parent, new List<Dictionary<string, object>> { Notice(RestartNotice) });
             Persist(parent);
             PushThread(parent);
+            if (stateLost) AppendEntries(parent, new List<Dictionary<string, object>> { Notice(RestartNotice) });
             return parent;
         }
 

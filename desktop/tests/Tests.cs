@@ -107,6 +107,22 @@ namespace Pult.Tests
             Run("D6 phone text shows in the feed", ThreadTests.PhoneTextShowsInFeedWithRequestId);
             Run("D6 posts keep the queue order", RelayTests.MessagesArePostedInQueueOrder);
             Run("D7 invalid phone messages are dropped and acked", RelayTests.InvalidPhoneMessagesAreDroppedAndAcked);
+            Run("cursor offset stops before a partial line", RegressionTests.P01CursorOffsetExcludesPartial);
+            Run("cursor from the pairing time", RegressionTests.P02FromTimeSkipsOldFileAndSeeks);
+            Run("large permission request fits", RegressionTests.P03LargePermissionRequestFits);
+            Run("fit keeps identifiers and flags", RegressionTests.P04FitKeepsIdentifiersAndFlags);
+            Run("card without actions closed by PostToolUse with answers", RegressionTests.P05GhostClosedByPostToolUseWithAnswers);
+            Run("card without actions closed by denial on tick", RegressionTests.P06GhostClosedByDenialOnTick);
+            Run("long labels answered in full", RegressionTests.P07LongLabelsAnsweredInFull);
+            Run("working after the phone answer", RegressionTests.P08WorkingAfterAnswer);
+            Run("accepted feeds need contiguity", RegressionTests.P09PhoneSentNeedsContiguity);
+            Run("parent announced before the restart notice", RegressionTests.P10ParentAnnouncedBeforeRestartNotice);
+            Run("tails within 1 MiB by real size", RegressionTests.P11TailsKeepBudgetByActualSize);
+            Run("steady hello stream still gets a snapshot", RegressionTests.P12HelloStreamStillGetsSnapshot);
+            Run("silent records of the agent", RegressionTests.P13AdapterSilentRecords);
+            Run("cut tool input marks the call truncated", RegressionTests.P14ToolCallTruncatedFlag);
+            Run("unmarked sibling folder is not taken", RegressionTests.P16SiblingFolderClaimsTranscript);
+            Run("long transcript read across syncs", RegressionTests.P17LongTranscriptReadAcrossSyncs);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

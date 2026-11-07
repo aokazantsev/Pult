@@ -20,6 +20,13 @@ namespace Pult
 
         public static Dictionary<string, object> Trim(object input)
         {
+            bool cut;
+            return Trim(input, out cut);
+        }
+
+        public static Dictionary<string, object> Trim(object input, out bool cut)
+        {
+            cut = false;
             var map = input as Dictionary<string, object>;
             if (map == null) return null;
             var trimmed = new Dictionary<string, object>();
@@ -28,9 +35,15 @@ namespace Pult
                 object value = pair.Value;
                 if (value == null) continue;
                 var text = value as string;
-                if (text != null) trimmed[pair.Key] = MessageRules.Cut(text, ValueLimit);
-                else if (value is Dictionary<string, object> || value is object[] || value is System.Collections.IList) trimmed[pair.Key] = MessageRules.Cut(Json.Write(value), ValueLimit);
-                else trimmed[pair.Key] = value;
+                if (text == null && (value is Dictionary<string, object> || value is System.Collections.IList)) text = Json.Write(value);
+                if (text == null)
+                {
+                    trimmed[pair.Key] = value;
+                    continue;
+                }
+                string shorter = MessageRules.Cut(text, ValueLimit);
+                if (shorter != text) cut = true;
+                trimmed[pair.Key] = shorter;
             }
             return trimmed;
         }

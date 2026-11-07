@@ -21,6 +21,11 @@ namespace Pult
 
         public static Dictionary<string, long[]> Compute(IDictionary<string, long> known, IList<TailThread> threads)
         {
+            return Compute(known, threads, (thread, first, last) => (last - first + 1) * thread.EntryBytes);
+        }
+
+        public static Dictionary<string, long[]> Compute(IDictionary<string, long> known, IList<TailThread> threads, Func<TailThread, long, long, long> cost)
+        {
             var order = new List<TailThread>(threads.OrderBy(t => t.OpenRequest ? 0 : 1).ThenByDescending(t => t.LastEvent));
             long left = Budget;
             var result = new Dictionary<string, long[]>();
@@ -36,13 +41,13 @@ namespace Pult
                     result[thread.Thread] = null;
                     continue;
                 }
-                long cost = (last - first + 1) * thread.EntryBytes;
-                if (cost > left)
+                long price = cost(thread, first, last);
+                if (price > left)
                 {
                     result[thread.Thread] = null;
                     continue;
                 }
-                left -= cost;
+                left -= price;
                 result[thread.Thread] = new[] { first, last };
             }
             return result;

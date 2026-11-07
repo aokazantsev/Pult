@@ -18,7 +18,6 @@ namespace Pult
         public string SpawnedFromTitle;
         public string ForkedFromLocalId;
         public long LastActivity;
-        public bool Archived;
     }
 
     internal sealed class DesktopSessions
@@ -51,11 +50,6 @@ namespace Pult
         public DesktopMeta ByLocalId(string localId)
         {
             return Find(localId, null);
-        }
-
-        public DesktopMeta ByCliSession(string cliSessionId)
-        {
-            return Find(null, cliSessionId);
         }
 
         public DesktopMeta Find(string localId, string cliSessionId)
@@ -171,8 +165,7 @@ namespace Pult
                     SpawnedFromLocalId = Json.String(spawned, "sessionId"),
                     SpawnedFromTitle = Json.String(spawned, "title"),
                     ForkedFromLocalId = Json.String(map, "forkedFromSessionId"),
-                    LastActivity = Json.Long(map, "lastActivityAt", 0),
-                    Archived = Json.Bool(map, "isArchived")
+                    LastActivity = Json.Long(map, "lastActivityAt", 0)
                 };
             }
             catch (IOException)

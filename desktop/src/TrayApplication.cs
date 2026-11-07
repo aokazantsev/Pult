@@ -136,7 +136,7 @@ namespace Pult
                 {
                     Detach(client);
                     ThreadPool.QueueUserWorkItem(state => PairingFlow.Forget(client));
-                    Notify(EndText(reason, by));
+                    Notify(EndText(reason, by, client.Session.IdleSeconds));
                     return;
                 }
                 if (pairingForm != null && pairingForm.Pending == client) pairingForm.OnEnded(client);
@@ -203,7 +203,7 @@ namespace Pult
             RelayClient client = active;
             if (client == null || unpairing) return;
             if (MessageBox.Show("Разорвать сессию с телефоном? Для новой понадобится новый QR.", AppIdentity.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
-            EndActive(client, "user", "Пара разорвана");
+            EndActive(client, "user", EndText("user", "pc", client.Session.IdleSeconds));
         }
 
         private void EndActive(RelayClient client, string reason, string text)
@@ -238,21 +238,30 @@ namespace Pult
             int idle = client.Session.IdleSeconds;
             if (DateTime.UtcNow - broker.LastHookUtc < TimeSpan.FromSeconds(idle)) return;
             AppLog.Append("pair " + client.Session.Pair + ": no thread events for " + idle + " s");
-            EndActive(client, "idle", "Сессия закончилась по простою");
+            EndActive(client, "idle", EndText("idle", "pc", idle));
         }
 
-        private static string EndText(string reason, string by)
+        private static string IdleWords(int seconds)
+        {
+            int minutes = seconds / 60;
+            int hours = minutes / 60;
+            minutes %= 60;
+            if (hours == 0) return minutes + " мин";
+            return minutes == 0 ? hours + " ч" : hours + " ч " + minutes + " мин";
+        }
+
+        private static string EndText(string reason, string by, int idleSeconds)
         {
             switch (reason)
             {
                 case "user": return by == "phone" ? "Телефон отвязан с телефона" : "Сессия разорвана";
-                case "idle": return "Сессия закрыта: нет событий";
+                case "idle": return "Сессия закрыта: нет событий " + IdleWords(idleSeconds);
                 case "replaced": return "Телефон сопряжён заново";
                 case "no_hello": return "Телефон не дождался подтверждения сопряжения";
                 case "pairing_rejected": return "Попытка сопряжения не прошла проверку";
                 case "pc_offline": return "Не было связи с сервером дольше 5 минут";
                 case "not_found": return "Сессии больше нет: её разорвала другая сторона";
-                default: return "Сессия закончена (" + reason + ")";
+                default: return "Сессия разорвана (" + reason + ")";
             }
         }
 
