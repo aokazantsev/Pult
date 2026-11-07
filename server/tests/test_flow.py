@@ -704,3 +704,23 @@ class RestartTest(RelayCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PortBindingTest(RelayCase):
+    @unittest.skipUnless(os.name == "nt", "исключительная привязка — только Windows")
+    def test_second_process_cannot_take_busy_port_on_windows(self):
+        import socket
+        intruder = socket.socket()
+        self.addCleanup(intruder.close)
+        intruder.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        with self.assertRaises(OSError):
+            intruder.bind(("127.0.0.1", self.relay.port))
+            intruder.listen(1)
+
+    def test_second_relay_on_busy_port_fails(self):
+        from pult_relay.app import create_server
+        import dataclasses
+        config = dataclasses.replace(self.relay.config, port=self.relay.port)
+        core = type(self.relay.core)(self.relay.store, config, self.clock)
+        with self.assertRaises(OSError):
+            create_server(core)

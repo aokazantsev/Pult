@@ -6,7 +6,8 @@ import sys
 import threading
 import time
 
-from tools.pult_testclient import ClientError, Pc, Phone
+from tools import pult_testclient
+from tools.pult_testclient import ClientError, LoginRefused, Pc, Phone
 
 AUTO_REPLIES = {
     "permission_request": lambda b: {"type": "permission_response", "request_id": b["request_id"], "decision": "allow", "reason": ""},
@@ -47,7 +48,22 @@ def stdin_sender(peer):
     threading.Thread(target=run, daemon=True).start()
 
 
-def listen(peer, auto, seconds):
+def reconnect(peer, deadline, delay=1.0):
+    while deadline is None or time.time() < deadline:
+        time.sleep(delay)
+        try:
+            peer.login()
+            return True
+        except LoginRefused as e:
+            say(f"login refused: {e}")
+            return False
+        except (ClientError, OSError) as e:
+            say(f"reconnect failed: {e}")
+            delay = min(delay * 2, 30)
+    return False
+
+
+def listen(peer, auto, seconds, reconnect_delay=1.0):
     deadline = time.time() + seconds if seconds else None
     pinger = threading.Thread(target=lambda: _ping_loop(peer), daemon=True)
     pinger.start()
@@ -57,21 +73,28 @@ def listen(peer, auto, seconds):
         except queue.Empty:
             continue
         if kind == "eof":
-            say("stream closed")
-            return
+            say("stream closed, reconnecting")
+            if not reconnect(peer, deadline, reconnect_delay):
+                return
+            say("reconnected")
+            continue
         say(f"{kind}: {json.dumps(body, ensure_ascii=False)}")
         if kind == "message" and auto and body.get("type") in AUTO_REPLIES:
             status, data, env = peer.send(AUTO_REPLIES[body["type"]](body))
             say(f"auto-reply {env['id']}: {status} {data}")
+        if kind == "server" and body.get("type") == "pair_deleted":
+            return
 
 
 def _ping_loop(peer):
-    while peer.sse:
-        time.sleep(15)
+    while True:
+        time.sleep(pult_testclient.PING_INTERVAL)
+        if not peer.sse:
+            continue
         try:
             peer.ping()
         except (OSError, ClientError):
-            return
+            continue
 
 
 def cmd_pc(args):

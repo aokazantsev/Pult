@@ -21,6 +21,12 @@ B64U_RE = re.compile(r"[A-Za-z0-9_-]*")
 TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
+STREAM_READ_TIMEOUT = 90
+PING_INTERVAL = 15
+ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+HELLO_TTL = 120
+
+
 class ClientError(Exception):
     pass
 
@@ -183,9 +189,9 @@ class Http:
         self.prefix = parts.path.rstrip("/")
         self.timeout = timeout
 
-    def connection(self):
+    def connection(self, timeout=None):
         cls = http.client.HTTPSConnection if self.scheme == "https" else http.client.HTTPConnection
-        return cls(self.host, self.port, timeout=self.timeout)
+        return cls(self.host, self.port, timeout=self.timeout if timeout is None else timeout)
 
     def request(self, method, path, body=None, headers=None):
         if isinstance(body, (dict, list)):
@@ -210,7 +216,7 @@ class Http:
 class Sse:
     def __init__(self, http_client, path, headers):
         self.events = queue.Queue()
-        self.conn = http_client.connection()
+        self.conn = http_client.connection(STREAM_READ_TIMEOUT)
         self.conn.request("GET", http_client.prefix + path, headers=headers)
         self.sock = self.conn.sock
         self.response = self.conn.getresponse()
@@ -363,6 +369,14 @@ class Peer:
             return self.pending_server.pop(0)
         return self.sse.events.get(timeout=timeout)
 
+    def next_event_pinging(self, timeout):
+        try:
+            return self.next_event(min(timeout, PING_INTERVAL))
+        except queue.Empty:
+            if timeout >= PING_INTERVAL:
+                self.ping()
+            raise
+
     def receive(self, timeout=5, ack=True):
         deadline = time.time() + timeout
         while True:
@@ -379,6 +393,8 @@ class Peer:
             try:
                 body = open_envelope(self.dir_keys, data, self.pair, self.side)
             except ClientError as e:
+                if ack and isinstance(data.get("id"), str) and ID_RE.fullmatch(data["id"]):
+                    self.ack([data["id"]])
                 return "reject", {"error": str(e), "envelope": data}
             fresh = data["id"] not in self.seen
             self.seen.add(data["id"])
@@ -388,7 +404,7 @@ class Peer:
                 return "message", body
 
     def hello(self):
-        return self.send({"type": "hello", "protocol": PROTOCOL, "capabilities": []}, ttl=0)
+        return self.send({"type": "hello", "protocol": PROTOCOL, "capabilities": []}, ttl=HELLO_TTL)
 
     def close(self):
         if self.sse:
@@ -432,7 +448,10 @@ class Pc(Peer):
             left = deadline - time.time()
             if left <= 0:
                 raise ClientError("no phone")
-            kind, data = self.next_event(left)
+            try:
+                kind, data = self.next_event_pinging(left)
+            except queue.Empty:
+                continue
             if kind == "eof":
                 raise ClientError("stream closed")
             if kind == "server" and data.get("type") == "pair":
@@ -527,7 +546,11 @@ class Phone(Peer):
             if left <= 0:
                 self.delete("no_hello")
                 raise ClientError("no hello")
-            kind, body = self.receive(left)
+            try:
+                kind, body = self.receive(min(left, PING_INTERVAL))
+            except queue.Empty:
+                self.ping()
+                continue
             if kind == "message" and body.get("type") == "hello":
                 return body
             if kind == "eof":

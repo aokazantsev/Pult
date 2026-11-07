@@ -1,4 +1,5 @@
 import json
+import os
 import queue
 import re
 import select
@@ -216,7 +217,12 @@ def make_handler(core):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def handle_error(self, request, client_address):
         if not isinstance(sys.exc_info()[1], OSError):
