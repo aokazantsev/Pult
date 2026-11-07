@@ -9,8 +9,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
 import ru.aokazantsev.pult.designsystem.component.PultCard
 import ru.aokazantsev.pult.designsystem.component.PultError
 import ru.aokazantsev.pult.designsystem.component.PultIconButton
@@ -19,19 +17,28 @@ import ru.aokazantsev.pult.designsystem.component.PultText
 import ru.aokazantsev.pult.designsystem.component.PultTopBar
 import ru.aokazantsev.pult.designsystem.icon.PultIcons
 import ru.aokazantsev.pult.designsystem.theme.PultTheme
+import ru.aokazantsev.pult.render.TextSanitizer
 import ru.aokazantsev.pult.session.ConnectionState
+import ru.aokazantsev.pult.ui.Labels
+import ru.aokazantsev.pult.ui.render.UntrustedLine
 
 @Composable
-fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit, onStartPairing: () -> Unit) {
-    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.onScreenStart() }
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.onScreenStop() }
+fun MainScreen(
+    viewModel: MainViewModel,
+    onOpenSettings: () -> Unit,
+    onStartPairing: () -> Unit,
+    onOpenThread: (String) -> Unit,
+) {
     val state by viewModel.state.collectAsState()
     val pairInfo = state.pairInfo
+    val content = state.content
     PultScaffold(
         topBar = {
             PultTopBar(
                 title = "Pult",
-                subtitle = connectionText(state.connection),
+                subtitle = TextSanitizer.oneLine(
+                    listOfNotNull(connectionText(state.connection), Labels.mode(content.mode)).joinToString(" · "),
+                ),
                 actions = {
                     PultIconButton(icon = PultIcons.Settings, contentDescription = "Настройка", onClick = onOpenSettings)
                 },
@@ -39,6 +46,10 @@ fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit, onStartPair
         },
     ) { padding ->
         val connection = state.connection
+        val notes = listOfNotNull(
+            state.notice,
+            state.dropped.takeIf { it > 0 }?.let { "Отброшено сообщений, не прошедших проверку: $it" },
+        )
         when {
             pairInfo != null && !pairInfo.confirmed -> PairingWaitView(
                 info = pairInfo,
@@ -61,8 +72,9 @@ fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit, onStartPair
                 message = connection.reason,
                 modifier = Modifier.padding(padding),
             )
-            state.cards.isEmpty() -> PultError(
-                message = "Запросов нет. ${viewModel.versionText}",
+            content.threads.isEmpty() && content.unknownTypes.isEmpty() -> PultError(
+                message = (listOf(if (content.snapshotApplied) "Тредов в сессии нет" else "Ждём состояние от ПК. ${viewModel.versionText}") + notes)
+                    .joinToString("\n"),
                 modifier = Modifier.padding(padding),
             )
             else -> LazyColumn(
@@ -70,10 +82,6 @@ fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit, onStartPair
                 contentPadding = PaddingValues(PultTheme.spacing.l),
                 verticalArrangement = Arrangement.spacedBy(PultTheme.spacing.m),
             ) {
-                val notes = listOfNotNull(
-                    state.notice,
-                    state.dropped.takeIf { it > 0 }?.let { "Отброшено сообщений, не прошедших проверку: $it" },
-                )
                 if (notes.isNotEmpty()) {
                     item(key = "notes") {
                         PultCard {
@@ -81,14 +89,20 @@ fun MainScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit, onStartPair
                         }
                     }
                 }
-                items(state.cards.asReversed(), key = { it.key }) { card ->
-                    RequestCardView(
-                        card = card,
-                        onAllow = { viewModel.allow(card.key) },
-                        onDeny = { viewModel.deny(card.key) },
-                        onChoose = { viewModel.choose(card.key, it) },
-                        onSendText = { viewModel.sendText(card.key, it) },
-                    )
+                if (content.unknownTypes.isNotEmpty()) {
+                    item(key = "unknown") {
+                        PultCard {
+                            content.unknownTypes.distinct().forEach { type ->
+                                UntrustedLine(
+                                    text = "Неизвестный тип сообщения: $type",
+                                    color = PultTheme.colors.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                items(content.threads, key = { "t:${it.info.thread}" }) { row ->
+                    ThreadRowView(row = row, onClick = { onOpenThread(row.info.thread) })
                 }
             }
         }

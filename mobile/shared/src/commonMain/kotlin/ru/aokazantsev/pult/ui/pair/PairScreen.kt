@@ -7,11 +7,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import ru.aokazantsev.pult.designsystem.component.PultError
 import ru.aokazantsev.pult.designsystem.component.PultLoading
 import ru.aokazantsev.pult.designsystem.component.PultScaffold
 import ru.aokazantsev.pult.designsystem.component.PultTopBar
+import ru.aokazantsev.pult.navigation.ScanExit
 import ru.aokazantsev.pult.pairing.PairingProgress
 
 @Composable
@@ -24,7 +26,8 @@ fun PairScreen(
     val progress by viewModel.progress.collectAsState()
     val pair by viewModel.pair.collectAsState()
     val paired = pair != null
-    LaunchedEffect(paired) { if (paired) onPaired() }
+    val exit = remember { ScanExit() }
+    LaunchedEffect(paired) { if (exit.onPairedChanged(paired)) onPaired() }
     PultScaffold(topBar = { PultTopBar(title = "Сопряжение", onBack = onBack) }) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             when (val current = progress) {

@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import ru.aokazantsev.pult.access.ElapsedClock
 import ru.aokazantsev.pult.crypto.DeviceKeyStore
 import ru.aokazantsev.pult.crypto.PultCrypto
 import ru.aokazantsev.pult.pairing.PairInfo
@@ -37,13 +39,15 @@ import ru.aokazantsev.pult.pairing.ProtocolCompatibility
 import ru.aokazantsev.pult.pairing.StoredPair
 import ru.aokazantsev.pult.protocol.Base64Url
 import ru.aokazantsev.pult.protocol.EnvelopeCodec
-import ru.aokazantsev.pult.protocol.InboundMessage
-import ru.aokazantsev.pult.protocol.InboundParser
 import ru.aokazantsev.pult.protocol.JsonFields
 import ru.aokazantsev.pult.protocol.OpenResult
 import ru.aokazantsev.pult.protocol.OutboundMessages
 import ru.aokazantsev.pult.protocol.SseEvent
 import ru.aokazantsev.pult.protocol.StrictJson
+import ru.aokazantsev.pult.protocol.message.ChoiceAnswer
+import ru.aokazantsev.pult.protocol.message.MessageParser
+import ru.aokazantsev.pult.protocol.message.ParseResult
+import ru.aokazantsev.pult.protocol.message.PcMessage
 import ru.aokazantsev.pult.protocol.Wire
 import ru.aokazantsev.pult.relay.RelayApi
 import ru.aokazantsev.pult.relay.RelayException
@@ -58,12 +62,17 @@ class RelaySession(
     private val store: PairStore,
     private val keyStore: DeviceKeyStore,
     private val crypto: PultCrypto,
+    private val clock: ElapsedClock,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + dispatcher.limitedParallelism(1))
     private val lifecycleLock = Mutex()
-    private val queue = CardQueue()
+    private val model = SessionModel()
+    private val processed = ProcessedIds()
+    private val assembler = SnapshotAssembler()
+    private val helloPolicy = HelloRequestPolicy()
+    private var snapshotWaitToken = 0L
     private val inFlight = LinkedHashSet<Job>()
     private val math = PairingMath(crypto)
     private val codec = EnvelopeCodec(crypto)
@@ -91,17 +100,13 @@ class RelaySession(
             if (streamContext.value != null || connectForUnpair()) {
                 runCatching { withTimeout(UNPAIR_WAIT_MS) { postSigned("delete", USER_DELETE_BODY.encodeToByteArray()) } }
             }
-            endPair(current, reason = null)
+            endPair(current, reason = PairEndReasons.PHONE_UNPAIRED)
         }
     }
 
     private suspend fun connectForUnpair(): Boolean {
         lifecycleLock.withLock { startLocked() }
         return withTimeoutOrNull(UNPAIR_CONNECT_WAIT_MS) { streamContext.filterNotNull().first() } != null
-    }
-
-    fun dismissEnded() {
-        mutableState.update { if (it.connection is ConnectionState.PairEnded) it.copy(connection = ConnectionState.NotPaired) else it }
     }
 
     private fun startLocked() {
@@ -141,35 +146,43 @@ class RelaySession(
     }
 
     fun answerPermission(key: String, allow: Boolean) =
-        answer(key) { OutboundMessages.permissionResponse(it, allow) }
+        answer(key, text = null) { OutboundMessages.permissionResponse(it, allow) }
 
-    fun answerChoice(key: String, selected: List<String>) =
-        answer(key) { OutboundMessages.choiceResponse(it, selected) }
+    fun answerChoice(key: String, answers: List<ChoiceAnswer>) =
+        answer(key, text = null) { OutboundMessages.choiceResponse(it, answers) }
 
     fun answerText(key: String, text: String) =
-        answer(key) { OutboundMessages.textResponse(it, text) }
+        answer(key, text = text) { OutboundMessages.textResponse(it, text) }
 
-    private fun answer(key: String, build: (requestId: String) -> JsonObject) {
+    private fun answer(key: String, text: String?, build: (requestId: String) -> JsonObject) {
         scope.launch {
-            val card = queue.cards.firstOrNull { it.key == key } ?: return@launch
-            val request = card.message as? InboundMessage.Request ?: return@launch
-            send(key, build(request.requestId))
+            val card = model.cards[key] ?: return@launch
+            if (card.state != CardState.Open || card.request == null) return@launch
+            send(key, text, build(card.requestId))
         }
     }
 
-    private fun send(key: String, inner: JsonObject) {
-        val active = link ?: return
-        queue.markSending(key)
+    private fun send(key: String, text: String?, inner: JsonObject) {
+        val active = link
+        if (active == null) {
+            model.markSending(key, text)
+            model.markFailed(key, NO_CONNECTION)
+            publish()
+            return
+        }
+        model.markSending(key, text)
         publish()
         val id = responseId(key, inner)
         tracked {
             try {
-                sendEnvelope(active, id = id, ttl = RESPONSE_TTL_SECONDS, inner = inner)
-                queue.markSent(key)
+                deliver(active, id = id, ttl = RESPONSE_TTL_SECONDS, inner = inner)
+                model.markSent(key)
+            } catch (timeout: TimeoutCancellationException) {
+                model.markFailed(key, NO_CONNECTION)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                queue.markFailed(key, describeFailure(failure))
+                model.markFailed(key, if (isSamePair(active)) describeFailure(failure) else NO_CONNECTION)
             }
             publish()
         }
@@ -177,11 +190,11 @@ class RelaySession(
 
     private fun resetFor(pairId: String?) {
         if (pairId != activePairId) {
-            queue.clear()
+            clearSessionData()
             activePairId = pairId
             link = null
             streamContext.value = null
-            mutableState.update { it.copy(cards = emptyList(), dropped = 0, notice = null) }
+            mutableState.update { it.copy(dropped = 0, notice = null) }
         }
     }
 
@@ -230,11 +243,11 @@ class RelaySession(
         if (failure is RelayException) {
             when {
                 failure.status == 410 -> {
-                    endPair(pair, PairEndReasons.describe(failure.reason, failure.by))
+                    endPair(pair, PairEndReasons.describe(failure.reason, failure.by, pair.idleSeconds))
                     return
                 }
                 failure.status == 404 -> {
-                    endPair(pair, "Пара не найдена на сервере. Сопряжение нужно повторить")
+                    endPair(pair, PairEndReasons.GONE)
                     return
                 }
             }
@@ -257,7 +270,7 @@ class RelaySession(
         if (streamContext.value != null) {
             runCatching { withTimeout(UNPAIR_WAIT_MS) { postSigned("delete", NO_HELLO_DELETE_BODY.encodeToByteArray()) } }
         }
-        endPair(current, "Сопряжение не завершено: ПК не ответил. Отсканируйте новый QR")
+        endPair(current, PairEndReasons.NO_HELLO)
     }
 
     private suspend fun runStream(active: ActiveLink) {
@@ -318,6 +331,9 @@ class RelaySession(
             "session" -> {
                 val stream = JsonFields.string(signal, "stream")?.takeIf(JsonFields::isIdentifier) ?: return
                 streamContext.value = StreamContext(stream)
+                assembler.reset()
+                helloPolicy.reset()
+                snapshotWaitToken++
                 mutableState.update { it.copy(connection = ConnectionState.Connected) }
                 if (store.pair.value?.confirmed == true) tracked { sendHello(active) }
             }
@@ -326,7 +342,10 @@ class RelaySession(
             }
             "pair_deleted" -> {
                 val current = store.pair.value ?: return
-                endPair(current, PairEndReasons.describe(JsonFields.string(signal, "reason"), JsonFields.string(signal, "by")))
+                endPair(
+                    current,
+                    PairEndReasons.describe(JsonFields.string(signal, "reason"), JsonFields.string(signal, "by"), current.idleSeconds),
+                )
             }
         }
     }
@@ -335,9 +354,11 @@ class RelaySession(
         when (val opened = codec.open(data, active.pair.pair, Wire.FROM_PHONE, active.direction)) {
             is OpenResult.Opened -> {
                 val envelope = opened.envelope
-                val message = InboundParser.parseInner(envelope.inner)
-                if (queue.accept(envelope)) {
-                    if (message is InboundMessage.Hello) onHello(active, message)
+                if (processed.firstTime(envelope.id)) {
+                    when (val parsed = MessageParser.parseFromPc(envelope.inner)) {
+                        is ParseResult.Rejected -> mutableState.update { it.copy(dropped = it.dropped + 1) }
+                        is ParseResult.Accepted -> handleParsed(active, parsed.message)
+                    }
                     publish()
                 }
                 tracked { postQuietly { ack(envelope.id) } }
@@ -355,10 +376,55 @@ class RelaySession(
         }
     }
 
+    private fun handleParsed(active: ActiveLink, message: PcMessage) {
+        when (message) {
+            is PcMessage.Hello -> onHello(active, message)
+            is PcMessage.Snapshot -> onSnapshotPart(active, message)
+            else -> model.apply(message)
+        }
+    }
+
+    private fun onSnapshotPart(active: ActiveLink, part: PcMessage.Snapshot) {
+        if (part.part == 1L) snapshotWaitToken++
+        when (val step = assembler.accept(part)) {
+            SnapshotStep.Incomplete -> scheduleSnapshotRequest(active, SNAPSHOT_WAIT_MS)
+            SnapshotStep.Discarded -> {
+                if (!requestSnapshot(active)) mutableState.update { it.copy(dropped = it.dropped + 1) }
+            }
+            is SnapshotStep.Complete -> {
+                snapshotWaitToken++
+                model.applySnapshot(step.parts)
+            }
+        }
+    }
+
+    private fun isSamePair(active: ActiveLink): Boolean = link?.pair?.pair == active.pair.pair
+
+    private fun requestSnapshot(active: ActiveLink): Boolean {
+        val now = clock.elapsedMs()
+        if (helloPolicy.tryRequest(now)) {
+            tracked { sendHello(active) }
+            return true
+        }
+        if (helloPolicy.exhausted) return false
+        scheduleSnapshotRequest(active, helloPolicy.waitMs(now))
+        return true
+    }
+
+    private fun watchSnapshot(active: ActiveLink) = scheduleSnapshotRequest(active, SNAPSHOT_WAIT_MS)
+
+    private fun scheduleSnapshotRequest(active: ActiveLink, delayMs: Long) {
+        val token = ++snapshotWaitToken
+        scope.launch {
+            delay(delayMs)
+            if (token == snapshotWaitToken && link === active) requestSnapshot(active)
+        }
+    }
+
     private fun extractId(data: String): String? =
         StrictJson.parseObjectOrNull(data)?.let { JsonFields.string(it, "id") }?.takeIf(JsonFields::isIdentifier)
 
-    private fun onHello(active: ActiveLink, hello: InboundMessage.Hello) {
+    private fun onHello(active: ActiveLink, hello: PcMessage.Hello) {
         if (Wire.VERSION !in hello.protocol) {
             mutableState.update {
                 it.copy(connection = ConnectionState.Incompatible(ProtocolCompatibility.pcVersionProblem(hello.protocol).orEmpty()))
@@ -376,7 +442,12 @@ class RelaySession(
     }
 
     private suspend fun sendHello(active: ActiveLink) {
-        postQuietly { sendEnvelope(active, newId("ph"), HELLO_TTL_SECONDS, OutboundMessages.hello()) }
+        val token = snapshotWaitToken
+        try {
+            postQuietly { sendEnvelope(active, newId("ph"), HELLO_TTL_SECONDS, OutboundMessages.hello(model.feedPositions())) }
+        } finally {
+            if (token == snapshotWaitToken) watchSnapshot(active)
+        }
     }
 
     private suspend fun ack(id: String) {
@@ -384,15 +455,41 @@ class RelaySession(
     }
 
     private suspend fun sendEnvelope(active: ActiveLink, id: String, ttl: Int, inner: JsonObject) {
-        val body = codec.seal(
-            key = active.direction.phoneToPc,
-            pair = active.pair.pair,
-            from = Wire.FROM_PHONE,
-            id = id,
-            ts = Clock.System.now().epochSeconds,
-            ttl = ttl,
-            inner = inner,
-        ).encodeToByteArray()
+        postSealed(sealed(active, id, ttl, inner))
+    }
+
+    private suspend fun deliver(active: ActiveLink, id: String, ttl: Int, inner: JsonObject) {
+        val body = sealed(active, id, ttl, inner)
+        var attempt = 0
+        while (true) {
+            try {
+                postSealed(body)
+                return
+            } catch (timeout: TimeoutCancellationException) {
+                if (!isSamePair(active) || ++attempt >= DELIVERY_ATTEMPTS) throw timeout
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (!isSamePair(active) || !isTransient(failure) || ++attempt >= DELIVERY_ATTEMPTS) throw failure
+                delay(DELIVERY_BACKOFF_MS)
+            }
+        }
+    }
+
+    private fun isTransient(failure: Exception): Boolean =
+        if (failure is RelayException) failure.status == 429 || failure.status >= 500 else true
+
+    private fun sealed(active: ActiveLink, id: String, ttl: Int, inner: JsonObject): ByteArray = codec.seal(
+        key = active.direction.phoneToPc,
+        pair = active.pair.pair,
+        from = Wire.FROM_PHONE,
+        id = id,
+        ts = Clock.System.now().epochSeconds,
+        ttl = ttl,
+        inner = inner,
+    ).encodeToByteArray()
+
+    private suspend fun postSealed(body: ByteArray) {
         var attempt = 0
         while (true) {
             val staleId = streamContext.value?.id
@@ -424,21 +521,25 @@ class RelaySession(
                 Wire.postString(op, active.pair.pair, Wire.FROM_PHONE, context.id, counter, bodyHash).encodeToByteArray(),
             ),
         )
-        return api.post(
-            url = "${active.pair.server}/v2/pairs/${active.pair.pair}/$op",
-            headers = mapOf(
-                "Pult-From" to Wire.FROM_PHONE,
-                "Pult-Stream" to context.id,
-                "Pult-N" to counter.toString(),
-                "Pult-Sig" to signature,
-            ),
-            body = body,
-        )
+        return withTimeout(POST_TIMEOUT_MS) {
+            api.post(
+                url = "${active.pair.server}/v2/pairs/${active.pair.pair}/$op",
+                headers = mapOf(
+                    "Pult-From" to Wire.FROM_PHONE,
+                    "Pult-Stream" to context.id,
+                    "Pult-N" to counter.toString(),
+                    "Pult-Sig" to signature,
+                ),
+                body = body,
+            )
+        }
     }
 
     private suspend fun postQuietly(block: suspend () -> Unit) {
         try {
             block()
+        } catch (timeout: TimeoutCancellationException) {
+            return
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (ignored: Exception) {
@@ -450,6 +551,7 @@ class RelaySession(
         if (store.pair.value?.pair != pair.pair) return
         endedReason = reason
         runCatching { keyStore.delete(pair.pair) }
+        clearSessionData()
         store.clear()
     }
 
@@ -486,8 +588,16 @@ class RelaySession(
         job.start()
     }
 
+    private fun clearSessionData() {
+        model.reset()
+        processed.clear()
+        assembler.reset()
+        snapshotWaitToken++
+        publish()
+    }
+
     private fun publish() {
-        mutableState.update { it.copy(cards = queue.cards) }
+        mutableState.update { it.copy(content = model.content()) }
     }
 
     private fun responseId(key: String, inner: JsonObject): String {
@@ -506,9 +616,14 @@ class RelaySession(
         const val UNPAIR_CONNECT_WAIT_MS = 8_000L
         const val STREAM_WAIT_MS = 20_000L
         const val WATCHDOG_STEP_MS = 1_000L
-        const val RESPONSE_TTL_SECONDS = 120
+        const val RESPONSE_TTL_SECONDS = 600
         const val HELLO_TTL_SECONDS = 120
         const val STALE_RETRIES = 3
+        const val SNAPSHOT_WAIT_MS = 10_000L
+        const val POST_TIMEOUT_MS = 15_000L
+        const val NO_CONNECTION = "Нет связи с сервером, повторите"
+        const val DELIVERY_ATTEMPTS = 5
+        const val DELIVERY_BACKOFF_MS = 2_000L
         const val ID_DIGEST_BYTES = 12
         const val ID_RANDOM_BYTES = 12
         const val USER_DELETE_BODY = "{\"reason\":\"user\"}"

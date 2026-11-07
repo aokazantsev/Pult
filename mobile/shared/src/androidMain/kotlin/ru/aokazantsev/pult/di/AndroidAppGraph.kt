@@ -5,6 +5,8 @@ import dev.zacsweers.metro.createGraphFactory
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import java.util.concurrent.TimeUnit
+import ru.aokazantsev.pult.access.AndroidDeviceAuthenticator
+import ru.aokazantsev.pult.access.AndroidElapsedClock
 import ru.aokazantsev.pult.crypto.AndroidDeviceKeyStore
 import ru.aokazantsev.pult.crypto.JcaCrypto
 import ru.aokazantsev.pult.pairing.SharedPreferencesPairStore
@@ -23,6 +25,8 @@ fun createAndroidAppGraph(context: Context, appInfo: AppInfo): AppGraph =
         pairStore = SharedPreferencesPairStore(context),
         deviceKeyStore = AndroidDeviceKeyStore(),
         crypto = JcaCrypto(),
+        clock = AndroidElapsedClock(),
+        authenticator = AndroidDeviceAuthenticator(context),
     )
 
 private const val CONNECT_TIMEOUT_SECONDS = 10L

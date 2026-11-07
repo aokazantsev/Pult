@@ -17,17 +17,5 @@ class MainViewModel(
 
     val state: StateFlow<SessionState> = session.state
 
-    fun onScreenStart() = session.start()
-
-    fun onScreenStop() = session.stop()
-
-    fun allow(key: String) = session.answerPermission(key, allow = true)
-
-    fun deny(key: String) = session.answerPermission(key, allow = false)
-
-    fun choose(key: String, selected: List<String>) = session.answerChoice(key, selected)
-
-    fun sendText(key: String, text: String) = session.answerText(key, text)
-
     fun cancelPairing() = session.unpair()
 }
