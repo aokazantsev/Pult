@@ -13,14 +13,12 @@ namespace Pult
         public const int MaxWaitSeconds = 540;
         private const string HookPortKey = "hook_port";
         private const string ServerKey = "server";
-        private const string PairKey = "pair";
-        private const string TokenKey = "pc_token";
+        private const string LegacyPairKey = "pair";
+        private const string LegacyTokenKey = "pc_token";
         private const string WaitKey = "wait_seconds";
 
         public int HookPort = DefaultHookPort;
         public string Server = "";
-        public string Pair = "";
-        public string Token = "";
         public int WaitSeconds = DefaultWaitSeconds;
 
         public static string FilePath
@@ -28,9 +26,11 @@ namespace Pult
             get { return UserDataPaths.File("settings.txt"); }
         }
 
-        public bool RelayConfigured
+        private bool hadLegacyPair;
+
+        public bool ServerConfigured
         {
-            get { return Server.Length > 0 && Pair.Length > 0 && Token.Length > 0; }
+            get { return Server.Length > 0; }
         }
 
         public static AppSettings Load()
@@ -49,6 +49,11 @@ namespace Pult
                     if (separator <= 0) continue;
                     settings.Apply(line.Substring(0, separator).Trim(), line.Substring(separator + 1).Trim());
                 }
+                if (settings.hadLegacyPair)
+                {
+                    AppLog.Append("settings: stage 1 pair (pair, pc_token) removed, pairing is done by QR now");
+                    settings.Save();
+                }
             }
             catch (IOException error)
             {
@@ -63,7 +68,7 @@ namespace Pult
 
         public string Describe()
         {
-            return "hook port=" + HookPort + ", wait=" + WaitSeconds + " s, relay=" + (RelayConfigured ? Server + " pair " + Pair : "not configured");
+            return "hook port=" + HookPort + ", wait=" + WaitSeconds + " s, server=" + (ServerConfigured ? Server : "not configured");
         }
 
         private void Apply(string key, string value)
@@ -81,34 +86,33 @@ namespace Pult
                 case ServerKey:
                     Server = value;
                     return;
-                case PairKey:
-                    Pair = value;
-                    return;
-                case TokenKey:
-                    Token = value;
+                case LegacyPairKey:
+                case LegacyTokenKey:
+                    hadLegacyPair = true;
                     return;
             }
         }
 
-        private void Save()
+        public bool Save()
         {
             var text = new StringBuilder();
             text.Append(HookPortKey).Append('=').Append(HookPort.ToString(CultureInfo.InvariantCulture)).Append(Environment.NewLine);
             text.Append(WaitKey).Append('=').Append(WaitSeconds.ToString(CultureInfo.InvariantCulture)).Append(Environment.NewLine);
             text.Append(ServerKey).Append('=').Append(Server).Append(Environment.NewLine);
-            text.Append(PairKey).Append('=').Append(Pair).Append(Environment.NewLine);
-            text.Append(TokenKey).Append('=').Append(Token).Append(Environment.NewLine);
             try
             {
                 File.WriteAllText(FilePath, text.ToString(), new UTF8Encoding(false));
+                return true;
             }
             catch (IOException error)
             {
                 AppLog.Append("settings not saved: " + error.Message);
+                return false;
             }
             catch (UnauthorizedAccessException error)
             {
                 AppLog.Append("settings not saved: " + error.Message);
+                return false;
             }
         }
     }

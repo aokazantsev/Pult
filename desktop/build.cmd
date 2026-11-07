@@ -4,7 +4,7 @@ cd /d "%~dp0"
 set APP=Pult
 set HOOK=PultHook
 set CSC="%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-set REFS=/r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll
+set REFS=/r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:System.Numerics.dll
 
 call :free %APP%
 call :free %HOOK%

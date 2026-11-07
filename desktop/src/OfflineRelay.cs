@@ -10,6 +10,11 @@ namespace Pult
             get { return false; }
         }
 
+        public bool PhoneCompatible
+        {
+            get { return true; }
+        }
+
         public bool PhoneStreamOpen
         {
             get { return false; }

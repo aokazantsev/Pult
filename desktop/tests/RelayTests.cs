@@ -75,23 +75,30 @@ namespace Pult.Tests
             }
         }
 
+
         public static void WaitsForServerAndDeliversQueuedMessage()
         {
             int port = FreePort();
             var listener = new RecordingListener();
-            using (var client = new RelayClient("http://127.0.0.1:" + port, "p1", "tok", TempFile()))
+            RelaySession session = ActiveSession(port);
+            using (var client = new RelayClient(session, listener, TempFile()))
             {
                 client.Start(listener);
                 client.Send(new Dictionary<string, object> { { "type", "permission_request" }, { "request_id", "r1" } }, DateTime.UtcNow.AddMinutes(2), delegate { });
                 Thread.Sleep(2500);
                 Expect(!client.Connected, "not connected while the server is down");
                 Expect(listener.Connected == 0, "no connect callback yet");
-                using (var server = new FakeServer(port, new string[0]))
+                using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
                 {
-                    WaitFor(() => server.PostCount("/v1/pairs/p1/messages") > 0, 15, "queued message delivered after the server came back");
+                    WaitFor(() => Inner(server, session, "permission_request") != null, 15, "queued message delivered after the server came back");
                     Expect(client.Connected, "connected");
                     Expect(listener.Connected > 0, "connect callback");
-                    Expect(server.PostBody("/v1/pairs/p1/messages").Contains("\"request_id\":\"r1\""), "body carries the request");
+                    Expect(Json.String(Inner(server, session, "permission_request"), "request_id") == "r1", "body carries the request");
+                    Expect(Inner(server, session, "hello") != null, "hello sent on connect");
+                    Expect(server.Posts("messages").TrueForAll(p => p.SignatureValid && p.Stream == "st1"), "posts signed for the open stream");
+                    var numbers = new HashSet<long>();
+                    foreach (RecordedPost post in server.Posts("messages")) Expect(numbers.Add(post.N) && post.N >= 1, "n unique and from 1");
+                    Expect(server.BadLogins == 0, "login signature accepted");
                 }
             }
         }
@@ -99,24 +106,204 @@ namespace Pult.Tests
         public static void PhoneMessageIsNotRepeatedAfterRestart()
         {
             string idsPath = TempFile();
-            string message = "event: message\ndata: {\"id\":\"ph-1\",\"from\":\"phone\",\"inner\":{\"type\":\"hello\"}}\n\n";
-            var listener = new RecordingListener();
             int port = FreePort();
-            using (var server = new FakeServer(port, new[] { message }))
+            RelaySession session = ActiveSession(port);
+            string envelope = Envelope.Seal(session.Directions, session.Pair, "phone", "ph-1", 1, 600, "{\"type\":\"permission_response\",\"request_id\":\"r9\",\"decision\":\"allow\"}");
+            var listener = new RecordingListener();
+            using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
             {
-                using (var client = new RelayClient("http://127.0.0.1:" + port, "p1", "tok", idsPath))
+                server.Queue("id: 1\nevent: message\ndata: " + envelope + "\n\n");
+                using (var client = new RelayClient(session, listener, idsPath))
                 {
                     client.Start(listener);
                     WaitFor(() => listener.Messages == 1, 10, "first delivery");
-                    WaitFor(() => server.PostCount("/v1/pairs/p1/acks") > 0, 10, "ack sent");
+                    WaitFor(() => server.Posts("acks").Count > 0, 10, "ack sent");
                 }
-                using (var client = new RelayClient("http://127.0.0.1:" + port, "p1", "tok", idsPath))
+                using (var client = new RelayClient(ActiveSession(port), listener, idsPath))
                 {
                     client.Start(listener);
-                    WaitFor(() => server.PostCount("/v1/pairs/p1/acks") > 1, 10, "ack for the repeated message");
+                    WaitFor(() => server.Posts("acks").Count > 1, 10, "ack for the repeated message");
                     Expect(listener.Messages == 1, "message not handled twice after restart");
+                    Expect(server.Posts("acks")[0].Body == "{\"ids\":[\"ph-1\"]}", "ack body");
                 }
             }
+        }
+
+        public static void ForgedEnvelopesAreDropped()
+        {
+            int port = FreePort();
+            RelaySession session = ActiveSession(port);
+            string own = Envelope.Seal(session.Directions, session.Pair, "pc", "pc-x", 1, 600, "{\"type\":\"hello\"}");
+            string good = Envelope.Seal(session.Directions, session.Pair, "phone", "ph-2", 1, 600, "{\"type\":\"permission_response\",\"request_id\":\"r2\",\"decision\":\"deny\"}");
+            string tampered = good.Replace("\"ttl\":600", "\"ttl\":900");
+            var listener = new RecordingListener();
+            using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
+            using (var client = new RelayClient(session, listener, TempFile()))
+            {
+                server.Queue("event: message\ndata: " + own + "\n\n");
+                server.Queue("event: message\ndata: " + tampered + "\n\n");
+                server.Queue("event: message\ndata: " + good + "\n\n");
+                client.Start(listener);
+                WaitFor(() => listener.Messages == 1, 10, "good envelope delivered");
+                WaitFor(() => server.Posts("acks").Count == 1, 10, "good envelope acked");
+                Thread.Sleep(300);
+                Expect(listener.Messages == 1, "own and tampered envelopes dropped");
+                Expect(server.Posts("acks").Count == 1, "dropped envelopes are not acked");
+            }
+        }
+
+        public static void PairingAccepted()
+        {
+            Dictionary<string, object> v = VectorTests.Load("pairing.json");
+            int port = FreePort();
+            RelaySession session = PendingSession(port, v);
+            var listener = new RecordingListener();
+            using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
+            using (var client = new RelayClient(session, listener, TempFile()))
+            {
+                client.Start(listener);
+                WaitFor(() => client.Connected, 10, "pending pair logged in");
+                Expect(!client.Configured, "pending pair does not take requests");
+                server.Push(PairSignal(Json.String(v, "phone_sign"), Json.String(v, "phone_agree"), Json.String(v, "tag")));
+                WaitFor(() => listener.Paired == 1, 10, "paired");
+                Expect(session.Fingerprint == Json.String(v, "fingerprint"), "fingerprint");
+                Expect(session.SecretCopy() == null, "secret wiped");
+                Expect(client.Configured, "active pair takes requests");
+                WaitFor(() => Inner(server, session, "hello") != null, 10, "hello after verification");
+                object[] versions = Json.Value(Inner(server, session, "hello"), "protocol") as object[];
+                Expect(versions != null && versions.Length == 1 && (long)versions[0] == 2, "hello protocol [2]");
+                server.Push(PairSignal(Json.String(v, "phone_sign"), Json.String(v, "phone_agree"), Json.String(v, "tag")));
+                Thread.Sleep(500);
+                Expect(listener.Notices.Count == 0, "repeated pair signal with the same keys is ignored");
+                server.Push(PairSignal(Json.String(v, "pc_agree"), Json.String(v, "phone_agree"), Json.String(v, "tag")));
+                WaitFor(() => listener.Notices.Contains(RelayClient.IntrusionText), 10, "other keys reported as intrusion");
+                Expect(session.SamePhone(Json.String(v, "phone_sign"), Json.String(v, "phone_agree")), "stored keys unchanged");
+            }
+        }
+
+        public static void PairingRejected()
+        {
+            Dictionary<string, object> v = VectorTests.Load("pairing.json");
+            int port = FreePort();
+            RelaySession session = PendingSession(port, v);
+            var listener = new RecordingListener();
+            using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
+            using (var client = new RelayClient(session, listener, TempFile()))
+            {
+                client.Start(listener);
+                WaitFor(() => client.Connected, 10, "pending pair logged in");
+                var reject = (Dictionary<string, object>)((object[])Json.Value(v, "reject"))[0];
+                server.Push(PairSignal(Json.String(v, "phone_sign"), Json.String(v, "pc_agree"), Json.String(reject, "tag")));
+                WaitFor(() => listener.Rejected == 1, 10, "rejected");
+                Expect(server.Posts("delete").Count == 1 && server.Posts("delete")[0].Body == "{\"reason\":\"pairing_rejected\"}", "delete pairing_rejected");
+                Expect(server.Posts("delete")[0].SignatureValid, "delete signed");
+                Expect(!session.IsActive && client.Ended, "pair not activated");
+                Expect(Inner(server, session, "hello") == null && server.Posts("messages").Count == 0, "no hello");
+            }
+        }
+
+        public static void StaleStreamLogsInAgain()
+        {
+            int port = FreePort();
+            RelaySession session = ActiveSession(port);
+            var listener = new RecordingListener();
+            using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
+            {
+                server.Plan("messages", 401, "{\"error\":\"stale_stream\"}");
+                server.Plan("messages", 409, "{\"error\":\"replay\"}");
+                using (var client = new RelayClient(session, listener, TempFile()))
+                {
+                    client.Start(listener);
+                    WaitFor(() => server.Posts("messages").Count >= 3, 15, "message retried");
+                    List<RecordedPost> posts = server.Posts("messages");
+                    string firstId = Json.String(StrictJson.TryParseObject(posts[0].Body), "id");
+                    Expect(posts[0].Stream == "st1" && posts[1].Stream == "st2", "second attempt on a new stream after stale_stream");
+                    Expect(Json.String(StrictJson.TryParseObject(posts[1].Body), "id") == firstId, "same envelope id after relogin");
+                    Expect(posts[2].N == posts[1].N + 1 && Json.String(StrictJson.TryParseObject(posts[2].Body), "id") == firstId, "replay retried with the next n");
+                    Expect(server.Challenges >= 2, "new challenge for the new login");
+                }
+            }
+        }
+
+        public static void PairDeletedEndsSession()
+        {
+            int port = FreePort();
+            RelaySession session = ActiveSession(port);
+            var listener = new RecordingListener();
+            using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
+            using (var client = new RelayClient(session, listener, TempFile()))
+            {
+                client.Start(listener);
+                WaitFor(() => client.Connected, 10, "connected");
+                server.Push("event: server\ndata: {\"type\":\"pair_deleted\",\"reason\":\"user\",\"by\":\"phone\"}\n\n");
+                WaitFor(() => listener.Ended == "user/phone", 10, "pair_deleted signal ends the session");
+                Expect(!client.Configured, "ended pair takes no requests");
+                bool rejected = false;
+                client.Send(new Dictionary<string, object> { { "type", "permission_request" } }, DateTime.UtcNow.AddMinutes(1), delegate { rejected = true; });
+                Expect(rejected, "send after the end is refused at once");
+            }
+            int port2 = FreePort();
+            RelaySession gone = ActiveSession(port2);
+            var listener2 = new RecordingListener();
+            using (var server = new FakeRelayServer(port2, gone.Pair, Point("pc_sign")))
+            using (var client = new RelayClient(gone, listener2, TempFile()))
+            {
+                server.EndStreams("{\"error\":\"pair_deleted\",\"reason\":\"pc_offline\",\"by\":\"server\"}");
+                client.Start(listener2);
+                WaitFor(() => listener2.Ended == "pc_offline/server", 10, "410 on login ends the session");
+            }
+        }
+
+        public static void UnpairSendsSignedDelete()
+        {
+            int port = FreePort();
+            RelaySession session = ActiveSession(port);
+            var listener = new RecordingListener();
+            using (var server = new FakeRelayServer(port, session.Pair, Point("pc_sign")))
+            using (var client = new RelayClient(session, listener, TempFile()))
+            {
+                client.Start(listener);
+                Expect(client.DeletePair("user", TimeSpan.FromSeconds(10)), "delete confirmed");
+                Expect(server.Posts("delete").Count == 1 && server.Posts("delete")[0].SignatureValid && server.Posts("delete")[0].Body == "{\"reason\":\"user\"}", "signed delete user");
+                Expect(client.Ended && listener.Ended == null, "own delete is not reported as a remote end");
+            }
+        }
+
+        private static string PairSignal(string phoneSign, string phoneAgree, string tag)
+        {
+            return "event: server\ndata: {\"type\":\"pair\",\"phone_sign\":\"" + phoneSign + "\",\"phone_agree\":\"" + phoneAgree + "\",\"tag\":\"" + tag + "\"}\n\n";
+        }
+
+        private static Dictionary<string, object> Inner(FakeRelayServer server, RelaySession session, string type)
+        {
+            if (session.Directions == null) return null;
+            foreach (RecordedPost post in server.Posts("messages"))
+            {
+                OpenedEnvelope opened = Envelope.Open(session.Directions, session.Pair, "phone", post.Body);
+                if (opened.Accepted && Json.String(opened.Inner, "type") == type) return opened.Inner;
+            }
+            return null;
+        }
+
+        private static RelaySession ActiveSession(int port)
+        {
+            Dictionary<string, object> v = VectorTests.Load("pairing.json");
+            return RelaySession.Active("http://127.0.0.1:" + port, Json.String(v, "pair"), PcKeys(), Json.String(v, "phone_sign"), Json.String(v, "phone_agree"), QrPayload.DefaultIdleSeconds);
+        }
+
+        private static RelaySession PendingSession(int port, Dictionary<string, object> v)
+        {
+            return RelaySession.Pending("http://127.0.0.1:" + port, Json.String(v, "pair"), PcKeys(), Base64Url.Decode(Json.String(v, "secret")), QrPayload.DefaultIdleSeconds);
+        }
+
+        private static PairKeys PcKeys()
+        {
+            return new PairKeys(VectorTests.PrivateKey("pc_sign"), VectorTests.PrivateKey("pc_agree"), null, null);
+        }
+
+        private static byte[] Point(string name)
+        {
+            return P256.ParsePoint(Json.String(Json.Object(Json.Object(VectorTests.Load("keys.json"), "keys"), name), "public"));
         }
 
         private static string TempFile()
@@ -147,169 +334,6 @@ namespace Pult.Tests
                 Thread.Sleep(50);
             }
             throw new Exception("timeout: " + what);
-        }
-
-        private sealed class RecordingListener : IRelayListener
-        {
-            private int connected;
-            private int messages;
-
-            public int Connected
-            {
-                get { return Thread.VolatileRead(ref connected); }
-            }
-
-            public int Messages
-            {
-                get { return Thread.VolatileRead(ref messages); }
-            }
-
-            public void OnRelayConnected()
-            {
-                Interlocked.Increment(ref connected);
-            }
-
-            public void OnPhoneStreamChanged()
-            {
-            }
-
-            public void OnPhoneMessage(Dictionary<string, object> inner)
-            {
-                Interlocked.Increment(ref messages);
-            }
-        }
-
-        private sealed class FakeServer : IDisposable
-        {
-            private readonly TcpListener listener;
-            private readonly string[] streamEvents;
-            private readonly object gate = new object();
-            private readonly List<KeyValuePair<string, string>> posts = new List<KeyValuePair<string, string>>();
-            private volatile bool stopped;
-
-            public FakeServer(int port, string[] streamEvents)
-            {
-                this.streamEvents = streamEvents;
-                listener = new TcpListener(IPAddress.Loopback, port);
-                listener.Start();
-                new Thread(AcceptLoop) { IsBackground = true }.Start();
-            }
-
-            public int PostCount(string path)
-            {
-                lock (gate)
-                {
-                    int count = 0;
-                    foreach (KeyValuePair<string, string> post in posts) if (post.Key == path) count++;
-                    return count;
-                }
-            }
-
-            public string PostBody(string path)
-            {
-                lock (gate)
-                {
-                    foreach (KeyValuePair<string, string> post in posts) if (post.Key == path) return post.Value;
-                    return "";
-                }
-            }
-
-            public void Dispose()
-            {
-                stopped = true;
-                listener.Stop();
-            }
-
-            private void AcceptLoop()
-            {
-                while (!stopped)
-                {
-                    TcpClient client;
-                    try
-                    {
-                        client = listener.AcceptTcpClient();
-                    }
-                    catch (SocketException)
-                    {
-                        return;
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        return;
-                    }
-                    new Thread(() => Serve(client)) { IsBackground = true }.Start();
-                }
-            }
-
-            private void Serve(TcpClient client)
-            {
-                try
-                {
-                    using (client)
-                    {
-                        NetworkStream stream = client.GetStream();
-                        string head = ReadHead(stream);
-                        if (head == null) return;
-                        string[] first = head.Split(new[] { "\r\n" }, StringSplitOptions.None)[0].Split(' ');
-                        string method = first[0];
-                        string path = first[1];
-                        if (method == "GET")
-                        {
-                            Write(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n: open\r\n\r\n");
-                            foreach (string item in streamEvents) Write(stream, item);
-                            while (!stopped && client.Connected)
-                            {
-                                Thread.Sleep(100);
-                                Write(stream, ": keepalive\n\n");
-                            }
-                            return;
-                        }
-                        int length = 0;
-                        foreach (string line in head.Split(new[] { "\r\n" }, StringSplitOptions.None))
-                        {
-                            if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) length = int.Parse(line.Substring(15).Trim());
-                        }
-                        var body = new byte[length];
-                        int total = 0;
-                        while (total < length)
-                        {
-                            int read = stream.Read(body, total, length - total);
-                            if (read <= 0) break;
-                            total += read;
-                        }
-                        lock (gate) posts.Add(new KeyValuePair<string, string>(path, Encoding.UTF8.GetString(body)));
-                        Write(stream, "HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
-                    }
-                }
-                catch (IOException)
-                {
-                }
-                catch (SocketException)
-                {
-                }
-                catch (ObjectDisposedException)
-                {
-                }
-            }
-
-            private static string ReadHead(NetworkStream stream)
-            {
-                var collected = new StringBuilder();
-                var one = new byte[1];
-                while (!collected.ToString().EndsWith("\r\n\r\n", StringComparison.Ordinal))
-                {
-                    if (stream.Read(one, 0, 1) <= 0) return null;
-                    collected.Append((char)one[0]);
-                }
-                return collected.ToString();
-            }
-
-            private static void Write(NetworkStream stream, string text)
-            {
-                byte[] bytes = Encoding.UTF8.GetBytes(text);
-                stream.Write(bytes, 0, bytes.Length);
-                stream.Flush();
-            }
         }
     }
 }

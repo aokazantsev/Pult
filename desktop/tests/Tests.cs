@@ -17,6 +17,12 @@ namespace Pult.Tests
         private static int Main()
         {
             Isolate();
+            Run("vectors: keys", VectorTests.Keys);
+            Run("vectors: pairing", VectorTests.Pairing);
+            Run("vectors: envelope valid", VectorTests.EnvelopeValid);
+            Run("vectors: envelope reject", VectorTests.EnvelopeReject);
+            Run("vectors: auth", VectorTests.Auth);
+            Run("strict json and base64url", VectorTests.StrictParsing);
             Run("mode pc releases at once", ModePcReleasesAtOnce);
             Run("relay not configured releases at once", OfflineReleasesAtOnce);
             Run("phone allow reaches the hook", PhoneAllow);
@@ -51,6 +57,12 @@ namespace Pult.Tests
             Run("request without transcript path", RelayTests.PendingRequestWithoutTranscript);
             Run("request waits for the server and is delivered", RelayTests.WaitsForServerAndDeliversQueuedMessage);
             Run("phone message not repeated after restart", RelayTests.PhoneMessageIsNotRepeatedAfterRestart);
+            Run("forged envelopes are dropped", RelayTests.ForgedEnvelopesAreDropped);
+            Run("pairing accepted", RelayTests.PairingAccepted);
+            Run("pairing rejected", RelayTests.PairingRejected);
+            Run("stale stream logs in again, replay retried", RelayTests.StaleStreamLogsInAgain);
+            Run("pair deleted ends the session", RelayTests.PairDeletedEndsSession);
+            Run("unpair sends a signed delete", RelayTests.UnpairSendsSignedDelete);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

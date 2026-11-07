@@ -9,6 +9,8 @@ namespace Pult
 
         bool PhoneStreamOpen { get; }
 
+        bool PhoneCompatible { get; }
+
         void Send(Dictionary<string, object> inner, DateTime expiresAtUtc, Action rejected);
 
         void SendLive(Dictionary<string, object> inner);

@@ -18,6 +18,11 @@ namespace Pult.Tests
         public volatile bool PhoneOpen = true;
         public bool RejectAll;
 
+        public bool PhoneCompatible
+        {
+            get { return true; }
+        }
+
         public bool PhoneStreamOpen
         {
             get { return PhoneOpen; }

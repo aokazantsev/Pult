@@ -26,6 +26,7 @@ namespace Pult
         private readonly Dictionary<string, string> titles = new Dictionary<string, string>();
         private ControlMode mode = ControlMode.Phone;
         private bool stopped;
+        private long lastHookTicks = DateTime.UtcNow.Ticks;
 
         public Broker(IRelay relay, TimeSpan wait, int pollMs)
         {
@@ -48,6 +49,16 @@ namespace Pult
             {
                 lock (gate) return pending.Count(r => !r.Released);
             }
+        }
+
+        public DateTime LastHookUtc
+        {
+            get { return new DateTime(Interlocked.Read(ref lastHookTicks), DateTimeKind.Utc); }
+        }
+
+        public void ResetIdle()
+        {
+            Interlocked.Exchange(ref lastHookTicks, DateTime.UtcNow.Ticks);
         }
 
         public void SetMode(ControlMode value)
@@ -77,6 +88,7 @@ namespace Pult
         public void Handle(HookEvent hookEvent, TimeSpan hookLimit, IHookChannel channel)
         {
             Remember(hookEvent);
+            ResetIdle();
             switch (hookEvent.Name)
             {
                 case "PermissionRequest":
@@ -200,6 +212,7 @@ namespace Pult
                 if (mode == ControlMode.Pc) return "mode pc";
             }
             if (!relay.Configured) return "relay not configured";
+            if (!relay.PhoneCompatible) return "phone incompatible";
             return null;
         }
 
