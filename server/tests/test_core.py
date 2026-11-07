@@ -110,6 +110,31 @@ class CoreTest(unittest.TestCase):
             post(core, "pc", "c")
         self.assertEqual(ctx.exception.status, 429)
 
+    def test_queue_bytes_limit_rejects(self):
+        core, store, *_ = make(self.tmp.name, max_queue_bytes_per_pair=250)
+        env = envelope("p1", "pc", "a")
+        core.post("p1", "pc", env, 100)
+        core.post("p1", "pc", envelope("p1", "pc", "b"), 100)
+        with self.assertRaises(RelayError) as ctx:
+            core.post("p1", "pc", envelope("p1", "pc", "c"), 100)
+        self.assertEqual(ctx.exception.status, 507)
+        core.post("p1", "phone", envelope("p1", "phone", "d"), 100)
+        self.assertEqual(len(store.pair_state("p1")["queue"]), 3)
+
+    def test_queue_bytes_freed_by_ack(self):
+        core, *_ = make(self.tmp.name, max_queue_bytes_per_pair=250)
+        core.post("p1", "pc", envelope("p1", "pc", "a"), 100)
+        core.post("p1", "pc", envelope("p1", "pc", "b"), 100)
+        core.ack("p1", "phone", ["a"])
+        core.post("p1", "pc", envelope("p1", "pc", "c"), 100)
+
+    def test_non_ascii_token_unauthorized(self):
+        core, *_ = make(self.tmp.name)
+        for token in ("тест", "café"):
+            with self.assertRaises(RelayError) as ctx:
+                core.authenticate("p1", token)
+            self.assertEqual(ctx.exception.status, 401)
+
     def test_too_large_rejected(self):
         core, *_ = make(self.tmp.name, max_envelope_bytes=50)
         with self.assertRaises(RelayError) as ctx:

@@ -10,7 +10,7 @@ from .config import PROTOCOL_VERSIONS
 from .core import CLOSE, RelayError, format_sse
 
 PEER_POLL_SEC = 0.25
-ROUTE =re.compile(r"^/v1/pairs/([A-Za-z0-9_-]{1,64})/(stream|messages|acks|ping|state)$")
+ROUTE = re.compile(r"^/v1/pairs/([A-Za-z0-9_-]{1,64})/(stream|messages|acks|ping|state)$")
 
 
 def make_handler(core):
@@ -40,13 +40,42 @@ def make_handler(core):
             return core.authenticate(pair_id, token)
 
         def _read_body(self):
+            limit = core.config.max_envelope_bytes
+            if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
+                return self._read_chunked(limit)
             try:
                 length = int(self.headers.get("Content-Length", ""))
             except ValueError:
                 raise RelayError(411, "length_required")
-            if length > core.config.max_envelope_bytes:
+            if length < 0:
+                raise RelayError(400, "bad_length")
+            if length > limit:
                 raise RelayError(413, "too_large")
             return self.rfile.read(length)
+
+        def _read_chunked(self, limit):
+            body = bytearray()
+            while True:
+                line = self.rfile.readline(66)
+                try:
+                    size = int(line.split(b";", 1)[0].strip(), 16)
+                except ValueError:
+                    raise RelayError(400, "bad_chunk")
+                if size < 0:
+                    raise RelayError(400, "bad_chunk")
+                if size == 0:
+                    while True:
+                        trailer = self.rfile.readline(65537)
+                        if not trailer.strip():
+                            break
+                    return bytes(body)
+                if len(body) + size > limit:
+                    raise RelayError(413, "too_large")
+                chunk = self.rfile.read(size)
+                if len(chunk) != size:
+                    raise RelayError(400, "bad_chunk")
+                body += chunk
+                self.rfile.readline(3)
 
         def do_GET(self):
             try:

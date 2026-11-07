@@ -1,3 +1,5 @@
+import http.client
+import json
 import os
 import socket
 import subprocess
@@ -51,6 +53,58 @@ class HttpTest(unittest.TestCase):
     def test_info(self):
         status, body = request(self.port, "GET", "/info")
         self.assertEqual((status, body["protocol"]), (200, [1]))
+
+    def test_non_ascii_token_is_401(self):
+        self.assertEqual(request(self.port, "GET", "/v1/pairs/p1/state", "café")[0], 401)
+        self.assertEqual(request(self.port, "POST", "/v1/pairs/p1/messages", "café", {})[0], 401)
+
+    def chunked(self, payload, token=None, split=7):
+        raw = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
+        parts = [raw[i:i + split] for i in range(0, len(raw), split)]
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        conn.request(
+            "POST",
+            "/v1/pairs/p1/messages",
+            body=iter(parts),
+            headers={"Authorization": f"Bearer {token or self.tokens['pc']}", "Transfer-Encoding": "chunked"},
+            encode_chunked=True,
+        )
+        resp = conn.getresponse()
+        data = resp.read()
+        conn.close()
+        return resp.status, json.loads(data)
+
+    def test_chunked_post_accepted(self):
+        status, body = self.chunked(envelope("p1", "pc", "ch-1"))
+        self.assertEqual((status, body["dup"]), (202, False))
+        self.assertEqual(request(self.port, "GET", "/v1/pairs/p1/state", self.tokens["pc"])[1]["queued_to_phone"], 1)
+
+    def test_chunked_post_over_limit_is_413(self):
+        self.core.config = Config(data_dir=self.tmp.name, port=0, max_envelope_bytes=200)
+        auth = f"Authorization: Bearer {self.tokens['pc']}"
+        data = self.raw_request(
+            f"POST /v1/pairs/p1/messages HTTP/1.1\r\nHost: x\r\n{auth}\r\nTransfer-Encoding: chunked\r\n\r\n1f4\r\n"
+        )
+        self.assertTrue(data.startswith(b"HTTP/1.1 413"))
+
+    def raw_request(self, head):
+        sock = socket.create_connection(("127.0.0.1", self.port), timeout=10)
+        sock.sendall(head.encode("ascii"))
+        data = sock.recv(4096)
+        sock.close()
+        return data
+
+    def test_chunked_post_bad_chunk_is_400(self):
+        auth = f"Authorization: Bearer {self.tokens['pc']}"
+        data = self.raw_request(
+            f"POST /v1/pairs/p1/messages HTTP/1.1\r\nHost: x\r\n{auth}\r\nTransfer-Encoding: chunked\r\n\r\nZZ\r\n"
+        )
+        self.assertTrue(data.startswith(b"HTTP/1.1 400"))
+
+    def test_post_without_length_is_411(self):
+        auth = f"Authorization: Bearer {self.tokens['pc']}"
+        data = self.raw_request(f"POST /v1/pairs/p1/messages HTTP/1.1\r\nHost: x\r\n{auth}\r\n\r\n")
+        self.assertTrue(data.startswith(b"HTTP/1.1 411"))
 
     def test_stream_requires_auth(self):
         self.assertEqual(request(self.port, "GET", "/v1/pairs/p1/state")[0], 401)

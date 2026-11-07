@@ -25,6 +25,13 @@ class Stream:
         self.closed = False
 
 
+def _queued_size(message):
+    size = message.get("size")
+    if isinstance(size, int):
+        return size
+    return len(json.dumps(message["env"], ensure_ascii=False).encode("utf-8"))
+
+
 def other(side):
     return "phone" if side == "pc" else "pc"
 
@@ -43,7 +50,7 @@ class Core:
         if not tokens or not token:
             raise RelayError(401, "unauthorized")
         for side in SIDES:
-            if hmac.compare_digest(tokens[side], token):
+            if hmac.compare_digest(tokens[side].encode("utf-8"), token.encode("utf-8")):
                 return side
         raise RelayError(401, "unauthorized")
 
@@ -80,14 +87,17 @@ class Core:
             target = other(side)
             if ttl > 0:
                 self._purge(ps)
-                if sum(1 for m in ps["queue"] if m["to"] == target) >= self.config.max_queue_per_pair:
+                queued = [m for m in ps["queue"] if m["to"] == target]
+                if len(queued) >= self.config.max_queue_per_pair:
                     raise RelayError(429, "queue_full")
+                if sum(_queued_size(m) for m in queued) + raw_size > self.config.max_queue_bytes_per_pair:
+                    raise RelayError(507, "queue_bytes_full")
             ps["seq"] += 1
             seq = ps["seq"]
             ps["seen"].append(env["id"])
             del ps["seen"][: -self.config.seen_ids_per_pair]
             if ttl > 0:
-                ps["queue"].append({"seq": seq, "to": target, "env": env, "expires": self.clock() + ttl})
+                ps["queue"].append({"seq": seq, "to": target, "env": env, "size": raw_size, "expires": self.clock() + ttl})
             self.store.save_state()
             stream = self.streams.get((pair_id, target))
             if stream:
