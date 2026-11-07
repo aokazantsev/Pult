@@ -88,11 +88,16 @@ class RelaySession(
     fun unpair() {
         scope.launch {
             val current = store.pair.value ?: return@launch
-            if (streamContext.value != null) {
+            if (streamContext.value != null || connectForUnpair()) {
                 runCatching { withTimeout(UNPAIR_WAIT_MS) { postSigned("delete", USER_DELETE_BODY.encodeToByteArray()) } }
             }
             endPair(current, reason = null)
         }
+    }
+
+    private suspend fun connectForUnpair(): Boolean {
+        lifecycleLock.withLock { startLocked() }
+        return withTimeoutOrNull(UNPAIR_CONNECT_WAIT_MS) { streamContext.filterNotNull().first() } != null
     }
 
     fun dismissEnded() {
@@ -498,6 +503,7 @@ class RelaySession(
         const val INCOMPATIBLE_RETRY_MS = 30_000L
         const val STOP_WAIT_MS = 2_000L
         const val UNPAIR_WAIT_MS = 3_000L
+        const val UNPAIR_CONNECT_WAIT_MS = 8_000L
         const val STREAM_WAIT_MS = 20_000L
         const val WATCHDOG_STEP_MS = 1_000L
         const val RESPONSE_TTL_SECONDS = 120

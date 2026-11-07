@@ -23,7 +23,8 @@ fun PairScreen(
 ) {
     val progress by viewModel.progress.collectAsState()
     val pair by viewModel.pair.collectAsState()
-    LaunchedEffect(pair) { if (pair != null) onPaired() }
+    val paired = pair != null
+    LaunchedEffect(paired) { if (paired) onPaired() }
     PultScaffold(topBar = { PultTopBar(title = "Сопряжение", onBack = onBack) }) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             when (val current = progress) {

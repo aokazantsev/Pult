@@ -46,7 +46,7 @@ fun PultApp(
                         viewModel = viewModel { graph.pairViewModel() },
                         scanner = qrScanner,
                         onBack = { navController.popBackStack() },
-                        onPaired = { navController.popBackStack() },
+                        onPaired = { navController.popBackStack(Route.Main, inclusive = false) },
                     )
                 }
                 composable<Route.Settings> {
