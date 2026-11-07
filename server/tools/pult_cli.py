@@ -68,11 +68,17 @@ def listen(peer, auto, seconds, reconnect_delay=1.0):
     pinger = threading.Thread(target=lambda: _ping_loop(peer), daemon=True)
     pinger.start()
     while deadline is None or time.time() < deadline:
+        current = peer.sse
         try:
             kind, body = peer.receive(1)
         except queue.Empty:
             continue
+        except (OSError, ClientError) as e:
+            say(f"receive failed: {e}")
+            kind, body = "eof", None
         if kind == "eof":
+            if peer.sse is not current:
+                continue
             say("stream closed, reconnecting")
             if not reconnect(peer, deadline, reconnect_delay):
                 return
@@ -80,8 +86,11 @@ def listen(peer, auto, seconds, reconnect_delay=1.0):
             continue
         say(f"{kind}: {json.dumps(body, ensure_ascii=False)}")
         if kind == "message" and auto and body.get("type") in AUTO_REPLIES:
-            status, data, env = peer.send(AUTO_REPLIES[body["type"]](body))
-            say(f"auto-reply {env['id']}: {status} {data}")
+            try:
+                status, data, env = peer.send(AUTO_REPLIES[body["type"]](body))
+                say(f"auto-reply {env['id']}: {status} {data}")
+            except (OSError, ClientError) as e:
+                say(f"auto-reply failed: {e}")
         if kind == "server" and body.get("type") == "pair_deleted":
             return
 
@@ -154,6 +163,24 @@ def cmd_phone(args):
     return 0
 
 
+def await_message(peer, timeout):
+    deadline = time.time() + timeout
+    while True:
+        left = deadline - time.time()
+        if left <= 0:
+            raise ClientError("no message")
+        try:
+            kind, body = peer.receive(left)
+        except queue.Empty:
+            continue
+        if kind == "eof":
+            raise ClientError("stream closed")
+        if kind == "reject":
+            raise ClientError(body["error"])
+        if kind == "message":
+            return body
+
+
 def cmd_demo(args):
     pc = Pc(args.server)
     qr = pc.claim(args.idle)
@@ -166,14 +193,14 @@ def cmd_demo(args):
     pc.hello()
     say("phone got:", phone.await_hello(10))
     phone.hello()
-    say("pc got:", pc.receive(5)[1])
+    say("pc got:", await_message(pc, 5))
     status, data, env = pc.send({"type": "permission_request", "request_id": "r1", "thread": "t1", "title": "demo", "tool": "Bash", "summary": "ls", "input": {"command": "ls"}})
     say("pc sent", status, data)
-    kind, body = phone.receive(5)
+    body = await_message(phone, 5)
     say("phone got:", body)
     status, data, env = phone.send(AUTO_REPLIES["permission_request"](body))
     say("phone sent", status, data)
-    say("pc got:", pc.receive(5)[1])
+    say("pc got:", await_message(pc, 5))
     say("state:", pc.state())
     pc.delete("user")
     say("phone event:", phone.receive(5))

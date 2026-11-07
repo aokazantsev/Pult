@@ -23,7 +23,6 @@ TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 STREAM_READ_TIMEOUT = 90
 PING_INTERVAL = 15
-ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 HELLO_TTL = 120
 
 
@@ -150,7 +149,13 @@ def open_envelope(keys, env, pair, receiver):
         plain = AESGCM(keys[env["from"]]).decrypt(raw[:12], raw[12:], envelope_aad(env))
     except Exception as e:
         raise ClientError("authentication failed") from e
-    return strict_json(plain.decode("utf-8"))
+    try:
+        body = strict_json(plain.decode("utf-8"))
+    except ValueError as e:
+        raise ClientError("plaintext is not JSON") from e
+    if not isinstance(body, dict):
+        raise ClientError("plaintext is not an object")
+    return body
 
 
 class KeyPair:
@@ -248,7 +253,7 @@ class Sse:
                 elif line == "" and kind:
                     self.events.put((kind, data))
                     kind = data = None
-        except (OSError, ValueError, http.client.HTTPException):
+        except (OSError, ValueError, AttributeError, http.client.HTTPException):
             pass
         self.events.put(("eof", None))
 
@@ -269,8 +274,18 @@ class LoginRefused(ClientError):
         self.body = body
 
 
+FINAL_LOGIN_STATUSES = (401, 404, 410)
+
+
+def refusal(status, body):
+    if status in FINAL_LOGIN_STATUSES:
+        return LoginRefused(status, body)
+    return ClientError(f"{status} {body}")
+
+
 class Peer:
     def __init__(self, base_url, side):
+        self.lock = threading.RLock()
         self.base_url = base_url.rstrip("/")
         self.side = side
         self.http = Http(self.base_url)
@@ -288,10 +303,6 @@ class Peer:
         self.token = secrets.token_hex(3)
         self.pending_server = []
 
-    @property
-    def peer_side(self):
-        return "phone" if self.side == "pc" else "pc"
-
     def info(self):
         status, body = self.http.request("GET", "/info")
         if status != 200:
@@ -301,10 +312,14 @@ class Peer:
     def challenge(self):
         status, body = self.http.request("POST", f"/v2/pairs/{self.pair}/challenge", {"from": self.side})
         if status != 200:
-            raise LoginRefused(status, body)
+            raise refusal(status, body)
         return body["challenge"]
 
     def login(self, timeout=10):
+        with self.lock:
+            return self._login(timeout)
+
+    def _login(self, timeout):
         if self.sse:
             self.sse.close()
         challenge = self.challenge()
@@ -312,13 +327,16 @@ class Peer:
         headers = {"Pult-From": self.side, "Pult-Challenge": challenge, "Pult-Sig": sig}
         sse = Sse(self.http, f"/v2/pairs/{self.pair}/stream", headers)
         if sse.status != 200:
-            raise LoginRefused(sse.status, sse.error)
+            raise refusal(sse.status, sse.error)
         self.sse = sse
         self.n = 0
         self.stream_id = None
         deadline = time.time() + timeout
         while time.time() < deadline:
-            kind, data = self.sse.events.get(timeout=max(0.01, deadline - time.time()))
+            try:
+                kind, data = self.sse.events.get(timeout=max(0.01, deadline - time.time()))
+            except queue.Empty:
+                break
             if kind == "server" and data.get("type") == "session":
                 self.stream_id = data["stream"]
                 return self.stream_id
@@ -328,6 +346,10 @@ class Peer:
         raise ClientError("no session event")
 
     def signed(self, op, body=b"", method="POST"):
+        with self.lock:
+            return self._signed(op, body, method)
+
+    def _signed(self, op, body, method):
         if isinstance(body, (dict, list)):
             body = compact(body).encode("utf-8")
         for attempt in (0, 1):
@@ -358,11 +380,12 @@ class Peer:
         return self.signed("delete", {"reason": reason})
 
     def send(self, body, ttl=600, mid=None):
-        self.counter += 1
-        mid = mid or f"{self.side}-{self.token}-{self.counter:04d}"
-        env = seal(self.dir_keys[self.side], self.pair, self.side, mid, ttl, body)
-        status, data = self.signed("messages", compact(env).encode("utf-8"))
-        return status, data, env
+        with self.lock:
+            self.counter += 1
+            mid = mid or f"{self.side}-{self.token}-{self.counter:04d}"
+            env = seal(self.dir_keys[self.side], self.pair, self.side, mid, ttl, body)
+            status, data = self.signed("messages", compact(env).encode("utf-8"))
+            return status, data, env
 
     def next_event(self, timeout=5):
         if self.pending_server:
@@ -393,13 +416,13 @@ class Peer:
             try:
                 body = open_envelope(self.dir_keys, data, self.pair, self.side)
             except ClientError as e:
-                if ack and isinstance(data.get("id"), str) and ID_RE.fullmatch(data["id"]):
+                if ack and isinstance(data.get("id"), str) and TOKEN_RE.fullmatch(data["id"]):
                     self.ack([data["id"]])
                 return "reject", {"error": str(e), "envelope": data}
             fresh = data["id"] not in self.seen
-            self.seen.add(data["id"])
             if ack:
                 self.ack([data["id"]])
+            self.seen.add(data["id"])
             if fresh:
                 return "message", body
 
@@ -417,7 +440,7 @@ class Pc(Peer):
         super().__init__(base_url, "pc")
         self.secret = None
 
-    def claim(self, idle_seconds=14400, advertised_url=None):
+    def claim(self, idle_seconds=14400):
         info = self.info()
         if 2 not in info.get("protocol", []):
             raise ClientError("server is incompatible")
@@ -431,7 +454,7 @@ class Pc(Peer):
         self.pair = body["pair"]
         qr = {
             "v": PROTOCOL,
-            "s": advertised_url or self.base_url,
+            "s": self.base_url,
             "c": self.pair,
             "k": b64u(self.secret),
             "ps": self.keys.sign_public,
@@ -494,7 +517,7 @@ class Phone(Peer):
         super().__init__(base_url or "http://invalid", "phone")
 
     @staticmethod
-    def parse_qr(text, allow_http=True):
+    def parse_qr(text):
         qr = strict_json(text)
         if not isinstance(qr, dict) or set(qr) != {"v", "s", "c", "k", "ps", "pa", "n"}:
             raise ClientError("qr fields")
@@ -502,7 +525,7 @@ class Phone(Peer):
             raise ClientError("qr v")
         if not isinstance(qr["s"], str) or qr["s"].endswith("/"):
             raise ClientError("qr s")
-        if not (qr["s"].startswith("https://") or (allow_http and qr["s"].startswith("http://"))):
+        if not qr["s"].startswith(("https://", "http://")):
             raise ClientError("qr s scheme")
         if not isinstance(qr["c"], str) or not TOKEN_RE.fullmatch(qr["c"]):
             raise ClientError("qr c")
@@ -515,8 +538,8 @@ class Phone(Peer):
             raise ClientError("qr n")
         return qr
 
-    def scan(self, qr_text, allow_http=True):
-        qr = self.parse_qr(qr_text, allow_http)
+    def scan(self, qr_text):
+        qr = self.parse_qr(qr_text)
         if 2 not in qr["v"]:
             raise ClientError("pc version is incompatible")
         self.base_url = qr["s"]

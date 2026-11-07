@@ -1,13 +1,12 @@
 import http.client
 import json
 import os
-import queue
 import tempfile
 import unittest
 
 from pult_relay.codec import b64u
 from tests.helpers import Clock, Relay, drain, raw_signed, wait_eof, wait_server, wait_until
-from tools.pult_testclient import ClientError, KeyPair, LoginRefused, claim_tag, compact, fingerprint, sign_p1363, login_string
+from tools.pult_testclient import ClientError, KeyPair, LoginRefused, compact, fingerprint, sign_p1363, login_string
 
 
 class RelayCase(unittest.TestCase):
@@ -404,15 +403,18 @@ class MessagesTest(RelayCase):
 
     def test_order_by_seq_across_ttl_paths(self):
         pc, phone = self.relay.paired()
-        seqs = []
+        seqs, ids = [], []
         for ttl in (60, 0, 60):
-            seqs.append(pc.send({"type": "status", "thread": "t", "status": "working"}, ttl=ttl)[1]["seq"])
+            status, data, env = pc.send({"type": "status", "thread": "t", "status": "working"}, ttl=ttl)
+            seqs.append(data["seq"])
+            ids.append(env["id"])
         self.assertEqual(seqs, sorted(seqs))
         got = []
-        for _ in range(3):
+        while len(got) < 3:
             event, data = phone.next_event(5)
-            got.append(int(0))
-        self.assertEqual(len(got), 3)
+            if event == "message":
+                got.append(data["id"])
+        self.assertEqual(got, ids)
 
     def test_ttl_is_clamped_for_queue_but_envelope_is_unchanged(self):
         pc, phone = self.relay.paired()
@@ -471,7 +473,6 @@ class MessagesTest(RelayCase):
         headers = {"Pult-From": "pc", "Pult-Stream": pc.stream_id, "Pult-N": str(pc.n), "Pult-Sig": sig}
         conn.request("POST", f"/v2/pairs/{pc.pair}/messages", body=iter([body[:20], body[20:]]), headers=headers, encode_chunked=True)
         resp = conn.getresponse()
-        self.assertEqual(resp.status, 400 if False else resp.status)
         conn.close()
         self.assertIn(resp.status, (202, 400))
         big = b"x" * 70000
@@ -702,9 +703,6 @@ class RestartTest(RelayCase):
         self.assertTrue(os.path.exists(path + ".corrupt"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class PortBindingTest(RelayCase):
     @unittest.skipUnless(os.name == "nt", "исключительная привязка — только Windows")
@@ -724,3 +722,7 @@ class PortBindingTest(RelayCase):
         core = type(self.relay.core)(self.relay.store, config, self.clock)
         with self.assertRaises(OSError):
             create_server(core)
+
+
+if __name__ == "__main__":
+    unittest.main()

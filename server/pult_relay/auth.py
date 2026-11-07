@@ -89,10 +89,10 @@ class Challenges:
     RANDOM = 12
     MAC = 16
 
-    def __init__(self, ttl, clock, key=None):
+    def __init__(self, ttl, clock):
         self.ttl = ttl
         self.clock = clock
-        self.key = key or os.urandom(32)
+        self.key = os.urandom(32)
         self.used = {}
         self._swept = 0.0
         self._lock = threading.Lock()

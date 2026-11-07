@@ -29,6 +29,10 @@ def _load(path):
     return data
 
 
+class StoreError(Exception):
+    pass
+
+
 class Store:
     def __init__(self, data_dir):
         os.makedirs(data_dir, exist_ok=True)
@@ -39,4 +43,7 @@ class Store:
 
     def save_state(self):
         with self._lock:
-            _atomic_write(self.state_path, {"version": STATE_VERSION, "pairs": self.pairs})
+            try:
+                _atomic_write(self.state_path, {"version": STATE_VERSION, "pairs": self.pairs})
+            except OSError as e:
+                raise StoreError(f"state.json not written: {e}") from e

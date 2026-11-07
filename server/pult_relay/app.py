@@ -2,6 +2,7 @@ import json
 import os
 import queue
 import re
+import time
 import select
 import socket
 import sys
@@ -11,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .codec import COUNTER_RE, MAX_SAFE_INT
 from .config import PROTOCOL_VERSIONS
-from .core import CLOSE, SIDES, RelayError, format_sse
+from .core import CLOSE, SIDES, RelayError, format_sse, message_size
 
 PEER_POLL_SEC = 0.25
 SMALL_BODY = 4096
@@ -26,11 +27,13 @@ def make_handler(core):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "pult-relay"
+        timeout = core.config.request_timeout
 
         def log_message(self, fmt, *args):
             pass
 
         def _json(self, status, payload):
+            self.connection.settimeout(core.config.request_timeout)
             body = json.dumps(payload).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -65,13 +68,30 @@ def make_handler(core):
             if length < 0:
                 raise RelayError(400, "bad_length")
             if length > limit:
-                self.rfile.read(min(length, limit * 4))
                 raise RelayError(413, "too_large")
-            return self.rfile.read(length)
+            return self._read_exact(length, time.monotonic() + core.config.request_timeout)
+
+        def _remaining(self, deadline):
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError("body")
+            self.connection.settimeout(left)
+
+        def _read_exact(self, length, deadline):
+            body = bytearray()
+            while len(body) < length:
+                self._remaining(deadline)
+                chunk = self.rfile.read1(length - len(body))
+                if not chunk:
+                    raise ConnectionError("body")
+                body += chunk
+            return bytes(body)
 
         def _read_chunked(self, limit):
+            deadline = time.monotonic() + core.config.request_timeout
             body = bytearray()
             while True:
+                self._remaining(deadline)
                 line = self.rfile.readline(66)
                 try:
                     size = int(line.split(b";", 1)[0].strip(), 16)
@@ -81,28 +101,38 @@ def make_handler(core):
                     raise RelayError(400, "bad_chunk")
                 if size == 0:
                     while True:
+                        self._remaining(deadline)
                         trailer = self.rfile.readline(65537)
                         if not trailer.strip():
                             break
                     return bytes(body)
                 if len(body) + size > limit:
                     raise RelayError(413, "too_large")
-                chunk = self.rfile.read(size)
-                if len(chunk) != size:
-                    raise RelayError(400, "bad_chunk")
-                body += chunk
+                body += self._read_exact(size, deadline)
+                self._remaining(deadline)
                 self.rfile.readline(3)
 
         def _guard(self, action):
+            addr = self._addr()
+            try:
+                core.enter(addr)
+            except RelayError as e:
+                return self._fail(e)
             try:
                 action()
             except RelayError as e:
                 self._fail(e)
-            except (OSError, ValueError):
+            except OSError:
                 self.close_connection = True
+            except ValueError:
+                self.close_connection = True
+                if not self.wfile.closed:
+                    traceback.print_exc(file=sys.stderr)
             except Exception:
                 traceback.print_exc(file=sys.stderr)
                 self._fail(RelayError(500, "internal"))
+            finally:
+                core.leave(addr)
 
         def do_GET(self):
             self._guard(self._get)
@@ -125,9 +155,10 @@ def make_handler(core):
 
         def _post(self):
             if self.path == "/v2/claims":
-                core.check_rate("claim", self._addr())
+                addr = self._addr()
+                core.check_rate("claim", addr)
                 raw = self._read_body(SMALL_BODY, True)
-                return self._json(201, core.create_claim(raw))
+                return self._json(201, core.create_claim(raw, addr))
             m = CLAIM_ROUTE.match(self.path)
             if m:
                 core.check_rate("claim", self._addr())
@@ -156,7 +187,7 @@ def make_handler(core):
                 raise RelayError(400, "bad_header")
             core.precheck(pair_id, side, stream_id)
             body = self._read_body(core.config.max_envelope_bytes, op in BODY_REQUIRED)
-            status, payload = core.signed(pair_id, side, stream_id, n_text, op, body, sig)
+            status, payload = core.signed(pair_id, side, stream_id, n_text, op, body, sig, self._addr())
             self._json(status, payload)
 
         def _login(self, pair_id):
@@ -165,7 +196,7 @@ def make_handler(core):
             sig = self.headers.get("Pult-Sig")
             if not (challenge and sig) or side not in SIDES:
                 raise RelayError(401, "unauthorized")
-            stream = core.login(pair_id, side, challenge, sig)
+            stream = core.login(pair_id, side, challenge, sig, self._addr())
             self._stream(pair_id, stream)
 
         def _peer_gone(self):
@@ -178,14 +209,15 @@ def make_handler(core):
                 return True
 
         def _stream(self, pair_id, stream):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Connection", "close")
-            self.end_headers()
             self.close_connection = True
             try:
+                self.connection.settimeout(core.config.write_timeout)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
+                self.send_header("Connection", "close")
+                self.end_headers()
                 self.wfile.write(b": open\n\n")
                 self.wfile.flush()
                 idle = 0.0
@@ -205,12 +237,18 @@ def make_handler(core):
                     if item is CLOSE:
                         break
                     kind, seq, payload = item
+                    if kind == "message" and stream.closed:
+                        stream.release(message_size(payload))
+                        continue
                     self.wfile.write(format_sse(kind, seq, payload))
                     self.wfile.flush()
+                    if kind == "message":
+                        stream.release(message_size(payload))
             except (OSError, ValueError):
                 pass
             finally:
                 core.close_stream(pair_id, stream)
+                stream.drop()
 
     return Handler
 
@@ -218,6 +256,26 @@ def make_handler(core):
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = os.name != "nt"
+
+    def __init__(self, address, handler, max_connections):
+        self.slots = threading.BoundedSemaphore(max_connections)
+        super().__init__(address, handler)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.slots.release()
+            self.shutdown_request(request)
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
 
     def server_bind(self):
         if os.name == "nt":
@@ -230,7 +288,7 @@ class Server(ThreadingHTTPServer):
 
 
 def create_server(core):
-    return Server((core.config.host, core.config.port), make_handler(core))
+    return Server((core.config.host, core.config.port), make_handler(core), core.config.max_connections)
 
 
 def serve_in_thread(server):
