@@ -337,8 +337,11 @@ class RelaySession(
                 }
                 tracked { postQuietly { ack(envelope.id) } }
             }
-            is OpenResult.Incompatible -> mutableState.update {
-                it.copy(connection = ConnectionState.Incompatible("Версия протокола ПК (${opened.version}) несовместима с телефоном"))
+            is OpenResult.Incompatible -> {
+                mutableState.update {
+                    it.copy(connection = ConnectionState.Incompatible("Версия протокола ПК (${opened.version}) несовместима с телефоном"))
+                }
+                extractId(data)?.let { id -> tracked { postQuietly { ack(id) } } }
             }
             is OpenResult.Invalid -> {
                 mutableState.update { it.copy(dropped = it.dropped + 1) }
@@ -498,7 +501,7 @@ class RelaySession(
         const val STREAM_WAIT_MS = 20_000L
         const val WATCHDOG_STEP_MS = 1_000L
         const val RESPONSE_TTL_SECONDS = 120
-        const val HELLO_TTL_SECONDS = 0
+        const val HELLO_TTL_SECONDS = 120
         const val STALE_RETRIES = 3
         const val ID_DIGEST_BYTES = 12
         const val ID_RANDOM_BYTES = 12
