@@ -44,6 +44,13 @@ namespace Pult.Tests
             Run("transcript cursor keeps partial line", CursorPartialLine);
             Run("transcript signals", SignalsScan);
             Run("hook channel line protocol", ChannelLineProtocol);
+            Run("processed ids survive restart", RelayTests.ProcessedIdsSurviveRestart);
+            Run("processed ids are bounded", RelayTests.ProcessedIdsAreBounded);
+            Run("processed ids tolerate broken input", RelayTests.ProcessedIdsTolerateBrokenInput);
+            Run("transcript cursor tolerates empty and bad paths", RelayTests.CursorToleratesEmptyAndBadPaths);
+            Run("request without transcript path", RelayTests.PendingRequestWithoutTranscript);
+            Run("request waits for the server and is delivered", RelayTests.WaitsForServerAndDeliversQueuedMessage);
+            Run("phone message not repeated after restart", RelayTests.PhoneMessageIsNotRepeatedAfterRestart);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

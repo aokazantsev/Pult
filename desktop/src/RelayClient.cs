@@ -25,8 +25,7 @@ namespace Pult
         private readonly object queueGate = new object();
         private readonly List<OutgoingMessage> queue = new List<OutgoingMessage>();
         private readonly AutoResetEvent queueSignal = new AutoResetEvent(false);
-        private readonly HashSet<string> processed = new HashSet<string>();
-        private readonly Queue<string> processedOrder = new Queue<string>();
+        private readonly ProcessedIds processed;
         private readonly Thread streamThread;
         private readonly Thread senderThread;
         private IRelayListener listener;
@@ -39,7 +38,13 @@ namespace Pult
         private string lastProblem = "not connected yet";
 
         public RelayClient(string server, string pair, string token)
+            : this(server, pair, token, UserDataPaths.File("processed-ids.txt"))
         {
+        }
+
+        public RelayClient(string server, string pair, string token, string processedIdsPath)
+        {
+            processed = new ProcessedIds(processedIdsPath, ProcessedLimit);
             baseUrl = server.TrimEnd('/') + "/v1/pairs/" + Uri.EscapeDataString(pair) + "/";
             this.pair = pair;
             this.token = token;
@@ -205,8 +210,6 @@ namespace Pult
             if (string.IsNullOrEmpty(id) || Json.String(payload, "from") != "phone") return;
             if (processed.Add(id))
             {
-                processedOrder.Enqueue(id);
-                while (processedOrder.Count > ProcessedLimit) processed.Remove(processedOrder.Dequeue());
                 Dictionary<string, object> inner = Json.Object(payload, "inner");
                 if (inner != null)
                 {
@@ -278,7 +281,7 @@ namespace Pult
                 { "v", ProtocolVersion },
                 { "pair", pair },
                 { "from", "pc" },
-                { "id", "pc-" + Guid.NewGuid().ToString("N") },
+                { "id", message.EnvelopeId },
                 { "ts", (long)(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds },
                 { "ttl", ttl },
                 { "inner", message.Inner }

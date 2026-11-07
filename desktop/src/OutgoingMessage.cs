@@ -6,6 +6,7 @@ namespace Pult
     internal sealed class OutgoingMessage
     {
         public readonly string Path;
+        public readonly string EnvelopeId = "pc-" + Guid.NewGuid().ToString("N");
         public readonly Dictionary<string, object> Inner;
         public readonly List<string> AckIds;
         public readonly DateTime ExpiresAtUtc;

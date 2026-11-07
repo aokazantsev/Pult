@@ -35,7 +35,18 @@ namespace PultHook
             DateTime deadline = started.AddSeconds(LimitSeconds(args));
             string input = ReadStdin();
             var serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
-            var hookEvent = serializer.DeserializeObject(input) as Dictionary<string, object>;
+            input = input.TrimStart('﻿');
+            if (string.IsNullOrWhiteSpace(input)) return;
+            Dictionary<string, object> hookEvent;
+            try
+            {
+                hookEvent = serializer.DeserializeObject(input) as Dictionary<string, object>;
+            }
+            catch (ArgumentException)
+            {
+                Note("hook input is not json");
+                return;
+            }
             if (hookEvent == null) return;
             string dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Pult");
             string secretPath = Path.Combine(dataDirectory, "hook-secret.txt");
