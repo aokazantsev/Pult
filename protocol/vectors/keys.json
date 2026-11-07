@@ -1,0 +1,29 @@
+{
+  "description": "Fixed P-256 key pairs. d — private scalar, public — SEC1 uncompressed point (0x04||X||Y), base64url without padding.",
+  "keys": {
+    "pc_sign": {
+      "d": "9fb8fbe86108868ca6b74f94c40f5efa0ad87c21f315e691c9a7c8746c9285dc",
+      "x": "036bdf48ef87a89d4c7c731f5a8ac8e5c7368901dc075e60ae84ed2063c759e3",
+      "y": "e26055bc98460e243617ef7ce31aac70075509b4a0603ff781fd9ef4d4dda0fb",
+      "public": "BANr30jvh6idTHxzH1qKyOXHNokB3AdeYK6E7SBjx1nj4mBVvJhGDiQ2F-984xqscAdVCbSgYD_3gf2e9NTdoPs"
+    },
+    "pc_agree": {
+      "d": "0aacbbe65e07151bf9cbabfc5694322fd808b47a5c75ee6e53b209eee6f739a7",
+      "x": "ec0b1d64e9af8d39260a641022b1176ffbd2b878cb6cf889680a5feb80fa450f",
+      "y": "a1a458ef0a0796afcf35a6a05a6ff296ef93cf543899ec6bf2f998197d372b20",
+      "public": "BOwLHWTpr405JgpkECKxF2_70rh4y2z4iWgKX-uA-kUPoaRY7woHlq_PNaagWm_ylu-Tz1Q4mexr8vmYGX03KyA"
+    },
+    "phone_sign": {
+      "d": "a444994bb3c97463b28bd39d998b093a218c1adb9ca047577e0a7c4af86c7456",
+      "x": "603cda6a1908017cb6040bef798637efe1b1845c895893be9a9910c8b869713d",
+      "y": "285b06da3396e0c6678f1b3d6937589c3bc1caa32ace15d0396b8f788c2fb9e9",
+      "public": "BGA82moZCAF8tgQL73mGN-_hsYRciViTvpqZEMi4aXE9KFsG2jOW4MZnjxs9aTdYnDvByqMqzhXQOWuPeIwvuek"
+    },
+    "phone_agree": {
+      "d": "382d1ef30a35db617d7a167e779e376bf943f075df851868e771d6cf25fef9b0",
+      "x": "42a4f66d655b43fd0badbc258fa7a776c61c5ca432042f9b586a750e6ec08e75",
+      "y": "c59b608ba97b524ac58c45b131f88d98f1bdf55ee09204b0a70a4807163baca7",
+      "public": "BEKk9m1lW0P9C628JY-np3bGHFykMgQvm1hqdQ5uwI51xZtgi6l7UkrFjEWxMfiNmPG99V7gkgSwpwpIBxY7rKc"
+    }
+  }
+}

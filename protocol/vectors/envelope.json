@@ -1,0 +1,325 @@
+{
+  "description": "Envelope v2: AES-256-GCM, ct = base64url(nonce12 || ciphertext || tag16), AAD = canonical open fields. Keys: key_pc_to_phone for from=pc, key_phone_to_pc for from=phone.",
+  "pair": "seStyIa_2TVdIzSwsdSRsg",
+  "key_pc_to_phone_hex": "4f06b7550545704289f232f4c0755625d998f3bfa95a9b95c86c45cedb6a0dcb",
+  "key_phone_to_pc_hex": "f56a5f69fd3d4328be2f2f7bdc1011a48f3d5d4b20b4b04709d8eca393fc03df",
+  "valid": [
+    {
+      "from": "pc",
+      "to": "phone",
+      "key_hex": "4f06b7550545704289f232f4c0755625d998f3bfa95a9b95c86c45cedb6a0dcb",
+      "nonce_hex": "a0a17376ba06c91c1a964e17",
+      "plaintext": "{\"type\":\"permission_request\",\"request_id\":\"r1\",\"thread\":\"t1\",\"title\":\"Pult\",\"tool\":\"Bash\",\"summary\":\"mkdir t1\",\"input\":{\"command\":\"mkdir t1\"}}",
+      "aad": "pult-v2-env\n2\nseStyIa_2TVdIzSwsdSRsg\npc\npc-0001\n1793989146\n600",
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "from": "phone",
+      "to": "pc",
+      "key_hex": "f56a5f69fd3d4328be2f2f7bdc1011a48f3d5d4b20b4b04709d8eca393fc03df",
+      "nonce_hex": "cbca4663e7bb02573c6a83d1",
+      "plaintext": "{\"type\":\"permission_response\",\"request_id\":\"r1\",\"decision\":\"allow\",\"reason\":\"\"}",
+      "aad": "pult-v2-env\n2\nseStyIa_2TVdIzSwsdSRsg\nphone\nph-0001\n1793989150\n600",
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "phone",
+        "id": "ph-0001",
+        "ts": 1793989150,
+        "ttl": 600,
+        "ct": "y8pGY-e7Alc8aoPRfb_b0CdowM4La1VQ9YzCHQBgut4Qe6frZolvs4CROPpe-CsxNk8p9rENIFP12otMj5jisC48DPPnGWTBwuXlpdq5vlUWaHFV_u0vnKydoU488FZ5VNWwkibTwnta43E"
+      }
+    },
+    {
+      "from": "pc",
+      "to": "phone",
+      "key_hex": "4f06b7550545704289f232f4c0755625d998f3bfa95a9b95c86c45cedb6a0dcb",
+      "nonce_hex": "8422963576eb206478b8fcb2",
+      "plaintext": "{\"type\":\"status\",\"thread\":\"t1\",\"status\":\"working\",\"title\":\"Тред\"}",
+      "aad": "pult-v2-env\n2\nseStyIa_2TVdIzSwsdSRsg\npc\npc-0002\n1793989151\n0",
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0002",
+        "ts": 1793989151,
+        "ttl": 0,
+        "ct": "hCKWNXbrIGR4uPyy0P12sQ_lwBgdwfT_7NArFu5s3jhHCL9OpXTfzsfi9Mcw3kcGJQmnSWWlcqm8MswvTwg24iLHhTi0U-SHpAgSmXR9UiaqXists4y1HYzyTEFpKM0sog"
+      }
+    },
+    {
+      "from": "phone",
+      "to": "pc",
+      "key_hex": "f56a5f69fd3d4328be2f2f7bdc1011a48f3d5d4b20b4b04709d8eca393fc03df",
+      "nonce_hex": "3f69130e163a165810f762ab",
+      "plaintext": "{\"type\":\"hello\",\"protocol\":[2],\"capabilities\":[]}",
+      "aad": "pult-v2-env\n2\nseStyIa_2TVdIzSwsdSRsg\nphone\nph-0002\n1793989152\n120",
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "phone",
+        "id": "ph-0002",
+        "ts": 1793989152,
+        "ttl": 120,
+        "ct": "P2kTDhY6FlgQ92KrDgL1LuhUMoTjLsBTAUW29jjh3L6D1t0HBSVLIShtRnbVFC2NelxuC7rt8jW3NfpKSRnB8xWPZQHyX0kw7Pz_q9I"
+      }
+    }
+  ],
+  "reject": [
+    {
+      "case": "ttl raised by the server",
+      "to": "phone",
+      "server": false,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 900,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "ts changed",
+      "to": "phone",
+      "server": false,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989147,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "id changed",
+      "to": "phone",
+      "server": false,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0009",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "from flipped",
+      "to": "pc",
+      "server": false,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "phone",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "own direction reflected back to the sender",
+      "to": "pc",
+      "server": false,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "v is a float",
+      "to": "phone",
+      "server": true,
+      "envelope": {
+        "v": 2.0,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "ciphertext bit flipped",
+      "to": "phone",
+      "server": false,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As23wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "foreign pair",
+      "to": "phone",
+      "server": false,
+      "envelope": {
+        "v": 2,
+        "pair": "WKsjBABbKiSY24EcLp1__Q",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "plaintext inner instead of ct",
+      "to": "phone",
+      "server": true,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "inner": {
+          "type": "status"
+        }
+      }
+    },
+    {
+      "case": "extra field",
+      "to": "phone",
+      "server": true,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo",
+        "sig": "AA"
+      }
+    },
+    {
+      "case": "ttl is a float",
+      "to": "phone",
+      "server": true,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600.0,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "version 1",
+      "to": "phone",
+      "server": true,
+      "envelope": {
+        "v": 1,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "ct is not canonical base64url",
+      "to": "phone",
+      "server": true,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdp"
+      }
+    },
+    {
+      "case": "ct with = padding",
+      "to": "phone",
+      "server": true,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo="
+      }
+    },
+    {
+      "case": "ct in standard base64 alphabet",
+      "to": "phone",
+      "server": true,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn/MbFc/CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL/dUBwsDd9SWdi9Kn8mTQY/+h2wTKlBbVbnlh+LtNd+jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5+cppOXjIHf7jddOgo4bdo"
+      }
+    },
+    {
+      "case": "id with a newline",
+      "to": "phone",
+      "server": true,
+      "envelope": {
+        "v": 2,
+        "pair": "seStyIa_2TVdIzSwsdSRsg",
+        "from": "pc",
+        "id": "pc-0001\n",
+        "ts": 1793989146,
+        "ttl": 600,
+        "ct": "oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo"
+      }
+    }
+  ],
+  "reject_text": [
+    {
+      "case": "duplicate ttl, last value is the original",
+      "to": "phone",
+      "server": true,
+      "text": "{\"v\":2,\"pair\":\"seStyIa_2TVdIzSwsdSRsg\",\"from\":\"pc\",\"id\":\"pc-0001\",\"ts\":1793989146,\"ttl\":900,\"ttl\":600,\"ct\":\"oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo\"}"
+    },
+    {
+      "case": "duplicate from, last value is the original",
+      "to": "phone",
+      "server": true,
+      "text": "{\"v\":2,\"pair\":\"seStyIa_2TVdIzSwsdSRsg\",\"from\":\"phone\",\"from\":\"pc\",\"id\":\"pc-0001\",\"ts\":1793989146,\"ttl\":600,\"ct\":\"oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo\"}"
+    },
+    {
+      "case": "NaN in ts",
+      "to": "phone",
+      "server": true,
+      "text": "{\"v\":2,\"pair\":\"seStyIa_2TVdIzSwsdSRsg\",\"from\":\"pc\",\"id\":\"pc-0001\",\"ts\":NaN,\"ttl\":600,\"ct\":\"oKFzdroGyRwalk4XFt35Uyi9As22wRpkyOG5QPh0YI1soCH8Njn_MbFc_CxMjz9tADZfKxWWVgnAAykq9WSCL9c3p502xjmis5etBymBJAsNrZMsgL_dUBwsDd9SWdi9Kn8mTQY_-h2wTKlBbVbnlh-LtNd-jHo1chBceoC6172u5eRAJuj3bhMZYt02yAr8FIQzNLwDqwcIw5-cppOXjIHf7jddOgo4bdo\"}"
+    }
+  ]
+}
