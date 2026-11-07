@@ -78,7 +78,7 @@ Claude Code 2.1.317 (desktop-приложение 4.23118.0), Windows 11, 06.11.
 
 | Факт | Итог | Как проверено |
 |---|---|---|
-| F-3 | **Да, с API 31.** `KeyProperties.PURPOSE_AGREE_KEY` и `KeyAgreement("ECDH", "AndroidKeyStore")` — с Android 12; minSdk 31 (D-67). На устройстве проверяет тест векторов mobile (`protocol/CRYPTO.md` §10) | документация Android |
+| F-3 | **Да, с API 31.** `KeyProperties.PURPOSE_AGREE_KEY` и `KeyAgreement("ECDH", "AndroidKeyStore")` — с Android 12; minSdk 31 (D-67). На Samsung разработчика ключи лежат в TEE (`KeyInfo.securityLevel`), согласование ECDH и подпись работают (07.11.2026). Тест векторов mobile — `protocol/CRYPTO.md` §10 | документация Android, опыт на устройстве |
 | F-21 | **Да.** `ECDiffieHellmanCng` с `KeyDerivationFunction = Hmac`, `HashAlgorithm = Sha256`, `HmacKey = salt` возвращает ровно `HMAC-SHA256(salt, Z)` — HKDF-Extract; `ECDsaCng.SignData` даёт P1363 64 байта, её подпись проходит проверку `cryptography`; AES-GCM через `bcrypt.dll` (`BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO`) расшифровывает эталонный конверт, неверные связанные данные — статус `0xC000A002` | csc 4.8, x64, ключи и конверт из `protocol/vectors` |
 
 ## Отложено (D-44)
