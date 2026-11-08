@@ -155,6 +155,7 @@ namespace Pult.Tests
             Run("pairing window: requested fields fill the window", PairRequestTests.RequestedFieldsFillTheWindow);
             Run("pairing window: state follows the window", PairRequestTests.DescribeFollowsTheWindow);
             Run("pairing window: rejection and failure are states", PairRequestTests.RejectionAndFailureAreStates);
+            Run("pairing window: hidden window works and starts once", PairRequestTests.HiddenWindowWorksAndStartsOnce);
             Run("pairing window: requested folders go to the claim", PairRequestTests.RequestedFoldersGoToTheClaim);
             Run("pairing window: claim not created is logged", PairRequestTests.ClaimNotCreatedIsLogged);
             Run("control: plain commands", ControlTests.PlainCommands);

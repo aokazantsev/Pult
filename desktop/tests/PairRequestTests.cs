@@ -78,6 +78,24 @@ namespace Pult.Tests
             }
         }
 
+        public static void HiddenWindowWorksAndStartsOnce()
+        {
+            using (var form = new PairingForm(new AppSettings(), null, Sessions(), new PairRequest { Server = "ftp://example.com" }))
+            {
+                form.Begin();
+                DateTime until = DateTime.UtcNow.AddSeconds(10);
+                while ((string)form.Describe()["state"] == PairingForm.Creating && DateTime.UtcNow < until)
+                {
+                    Application.DoEvents();
+                    System.Threading.Thread.Sleep(10);
+                }
+                Expect((string)form.Describe()["state"] == PairingForm.Failed, "the hidden window runs the claim: " + Json.Write(form.Describe()));
+                Expect(!form.Visible, "the window stays hidden");
+                form.Begin();
+                Expect((string)form.Describe()["state"] == PairingForm.Failed, "a second start, as on showing the window, does not issue a new claim");
+            }
+        }
+
         public static void RequestedFoldersGoToTheClaim()
         {
             var request = new PairRequest();

@@ -32,6 +32,7 @@ namespace Pult
         private PairingOffer offer;
         private RelayClient pending;
         private bool creating;
+        private bool started;
         private bool paired;
         private string outcome;
         private string problem;
@@ -106,7 +107,7 @@ namespace Pult
             Shown += (sender, e) =>
             {
                 closeButton.Focus();
-                StartOffer();
+                Begin();
             };
             FormClosing += (sender, e) => OnClosing();
         }
@@ -143,6 +144,14 @@ namespace Pult
 
         public void NewQr()
         {
+            StartOffer();
+        }
+
+        public void Begin()
+        {
+            if (started) return;
+            started = true;
+            GC.KeepAlive(Handle);
             StartOffer();
         }
 

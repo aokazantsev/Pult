@@ -202,19 +202,20 @@ namespace Pult
         {
             if (pairingForm != null && !pairingForm.IsDisposed)
             {
+                if (!pairingForm.Visible) pairingForm.Show();
                 pairingForm.Activate();
                 return;
             }
-            ShowPairingForm(null);
+            OpenPairingForm(null).Show();
         }
 
         private void ReopenPairingForm(PairRequest request)
         {
             if (pairingForm != null && !pairingForm.IsDisposed) pairingForm.Close();
-            ShowPairingForm(request);
+            OpenPairingForm(request).Begin();
         }
 
-        private void ShowPairingForm(PairRequest request)
+        private PairingForm OpenPairingForm(PairRequest request)
         {
             AppSettings current = AppSettings.Load();
             if (!current.ReadFailed) settings.Server = current.Server;
@@ -224,7 +225,7 @@ namespace Pult
             {
                 if (pairingForm == form) pairingForm = null;
             };
-            form.Show();
+            return form;
         }
 
         private void OnUnpair()
