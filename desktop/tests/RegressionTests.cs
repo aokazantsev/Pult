@@ -278,5 +278,154 @@ namespace Pult.Tests
         }
 
         private static string FromTranscript(string path, List<string> marked) { return FolderMembership.FromTranscriptDirectory(path, marked); }
+
+        private static List<long> FeedSeqs(Rig rig)
+        {
+            return rig.Relay.Sent("feed").SelectMany(f => ((List<object>)f["entries"]).Cast<Dictionary<string, object>>()).Select(e => Convert.ToInt64(e["seq"])).ToList();
+        }
+
+        private static string LongThread(Rig rig, string session, int count)
+        {
+            DateTime now = DateTime.UtcNow;
+            var lines = new List<string>();
+            for (int i = 1; i <= count; i++) lines.Add(Rig.UserLine(session + "-" + i, "m " + i, now));
+            string transcript = Rig.Transcript(Temp(), lines.ToArray());
+            rig.Start(session, "C:\\work\\demo", null);
+            rig.Broker.Handle(rig.Event("UserPromptSubmit", session, "C:\\work\\demo", null, transcript), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            List<Dictionary<string, object>> threads = rig.Relay.Sent("thread");
+            return Json.String(threads[threads.Count - 1], "thread");
+        }
+
+        private static void PhoneHello(Rig rig, string threadId, long seq)
+        {
+            object feeds = threadId == null ? new object[0] : new object[] { new Dictionary<string, object> { { "thread", threadId }, { "seq", seq } } };
+            rig.Broker.OnPhoneMessage(new Dictionary<string, object> { { "type", "hello" }, { "protocol", new object[] { 2L } }, { "capabilities", new object[0] }, { "feeds", feeds } });
+        }
+
+        public static void P18TailCutByKnownLimitAdvancesPhoneSent()
+        {
+            var rig = new Rig(5);
+            string threadId = LongThread(rig, "s-k", 260);
+            rig.Relay.Clear();
+            PhoneHello(rig, threadId, 10);
+            List<long> tail = FeedSeqs(rig);
+            Expect(tail.Count == 200 && tail.First() == 61 && tail.Last() == 260, "tail is cut to the last 200: " + tail.Count);
+            rig.Relay.Clear();
+            rig.Broker.OnRelayConnected();
+            Expect(FeedSeqs(rig).Count == 0, "accepted cut tail is not sent again: " + FeedSeqs(rig).Count);
+            rig.Broker.Stop();
+        }
+
+        public static void P19TailOfThreadAbsentInHelloIsNotRepeated()
+        {
+            var rig = new Rig(5);
+            LongThread(rig, "s-n", 60);
+            rig.Relay.Clear();
+            PhoneHello(rig, null, 0);
+            List<long> tail = FeedSeqs(rig);
+            Expect(tail.Count == 50 && tail.First() == 11, "unknown thread gets the last 50: " + tail.Count);
+            rig.Relay.Clear();
+            rig.Broker.OnRelayConnected();
+            Expect(FeedSeqs(rig).Count == 0, "accepted tail of an unknown thread is not repeated: " + FeedSeqs(rig).Count);
+            LongThread(rig, "s-m", 30);
+            rig.Relay.Clear();
+            rig.Broker.OnRelayConnected();
+            Expect(FeedSeqs(rig).Count == 0, "thread born after hello is not repeated: " + FeedSeqs(rig).Count);
+            rig.Broker.Stop();
+        }
+
+        private static string MetaFile(string dir, string local, string cli, string title, object prior)
+        {
+            Directory.CreateDirectory(dir);
+            var map = new Dictionary<string, object> { { "sessionId", local }, { "cliSessionId", cli }, { "cwd", "C:\\work\\" + local }, { "title", title } };
+            if (prior != null) map["priorCliSessionIds"] = prior;
+            string path = Path.Combine(dir, local + ".json");
+            File.WriteAllText(path, Json.Write(map), new UTF8Encoding(false));
+            return path;
+        }
+
+        public static void P20DesktopSessionsRereadChangedFile()
+        {
+            string dir = Temp();
+            string path = MetaFile(dir, "local_a", "cli-a", "первый", null);
+            var sessions = new DesktopSessions(dir, TimeSpan.Zero);
+            Expect(sessions.Find(null, "cli-a") != null, "meta found by cli id");
+            DateTime stamp = File.GetLastWriteTimeUtc(path);
+            MetaFile(dir, "local_a", "cli-b", "второй", new object[] { "cli-a" });
+            File.SetLastWriteTimeUtc(path, stamp.AddSeconds(1));
+            DesktopMeta changed = sessions.Find(null, "cli-b");
+            Expect(changed != null && changed.Title == "второй", "changed file is read again");
+            Expect(sessions.Find(null, "cli-a") == changed, "prior cli id still finds the thread");
+            MetaFile(dir, "local_a", "cli-b", "третий", new object[] { "cli-a" });
+            File.SetLastWriteTimeUtc(path, stamp.AddSeconds(2));
+            sessions.Find(null, "cli-x");
+            Expect(sessions.ByLocalId("local_a").Title == "третий", "same length change is seen by the write time");
+        }
+
+        public static void P21DesktopSessionsFindsByPriorCliId()
+        {
+            string dir = Temp();
+            MetaFile(dir, "local_p", "cli-new", "т", new object[] { "cli-old", "", 5L });
+            var sessions = new DesktopSessions(dir, TimeSpan.Zero);
+            Expect(sessions.Find(null, "cli-old") != null, "prior cli id finds the meta");
+            Expect(sessions.Find(null, "") == null, "empty prior id is not indexed");
+        }
+
+        public static void P22DesktopSessionsDropsDeletedFile()
+        {
+            string dir = Temp();
+            MetaFile(dir, "local_x", "cli-x", "x", null);
+            string gone = MetaFile(dir, "local_y", "cli-y", "y", null);
+            var sessions = new DesktopSessions(dir, TimeSpan.Zero);
+            Expect(sessions.Recent(10).Count == 2, "two folders");
+            File.Delete(gone);
+            Expect(sessions.Recent(10).Count == 1, "deleted file leaves the index");
+            Expect(sessions.Find(null, "cli-y") == null, "deleted meta is not found");
+        }
+
+        public static void P23DesktopSessionsRetriesLockedAndPartialFile()
+        {
+            string dir = Temp();
+            string path = MetaFile(dir, "local_l", "cli-l", "l", null);
+            var sessions = new DesktopSessions(dir, TimeSpan.Zero);
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                Expect(sessions.Find(null, "cli-l") == null, "locked file is not read");
+            }
+            Expect(sessions.Find(null, "cli-l") != null, "unlocked file is read on the next scan");
+            string partial = Path.Combine(dir, "local_q.json");
+            File.WriteAllText(partial, "{\"sessionId\":", new UTF8Encoding(false));
+            Expect(sessions.Find(null, "cli-q") == null, "partial file gives nothing");
+            MetaFile(dir, "local_q", "cli-q", "q", null);
+            File.SetLastWriteTimeUtc(partial, DateTime.UtcNow.AddSeconds(5));
+            Expect(sessions.Find(null, "cli-q") != null, "completed file is read again");
+        }
+
+        public static void P24DesktopSessionsWarmIndexesBeforeFind()
+        {
+            string dir = Temp();
+            MetaFile(dir, "local_w", "cli-w", "w", null);
+            var sessions = new DesktopSessions(dir, TimeSpan.FromHours(1));
+            sessions.Warm();
+            Expect(sessions.ByLocalId("local_w") != null, "warm scan indexes files");
+            MetaFile(dir, "local_v", "cli-v", "v", null);
+            Expect(sessions.ByLocalId("local_v") == null, "no rescan inside the interval");
+            var errors = new List<Exception>();
+            var warm = new Thread(() =>
+            {
+                try
+                {
+                    for (int i = 0; i < 50; i++) sessions.Warm();
+                }
+                catch (Exception error)
+                {
+                    lock (errors) errors.Add(error);
+                }
+            });
+            warm.Start();
+            for (int i = 0; i < 50; i++) Expect(sessions.ByLocalId("local_w") != null, "find during warm is stable");
+            warm.Join();
+            Expect(errors.Count == 0, "warm in parallel with find does not throw");
+        }
     }
 }

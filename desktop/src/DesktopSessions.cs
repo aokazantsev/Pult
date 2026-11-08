@@ -29,6 +29,7 @@ namespace Pult
         private readonly object gate = new object();
         private Dictionary<string, DesktopMeta> byLocal = new Dictionary<string, DesktopMeta>(StringComparer.Ordinal);
         private Dictionary<string, DesktopMeta> byCli = new Dictionary<string, DesktopMeta>(StringComparer.Ordinal);
+        private Dictionary<string, DesktopMetaFile> files = new Dictionary<string, DesktopMetaFile>(StringComparer.OrdinalIgnoreCase);
         private DateTime scannedAt = DateTime.MinValue;
 
         public DesktopSessions(string root)
@@ -66,6 +67,11 @@ namespace Pult
             }
         }
 
+        public void Warm()
+        {
+            lock (gate) Scan();
+        }
+
         public List<DesktopMeta> Recent(int limit)
         {
             lock (gate)
@@ -96,16 +102,20 @@ namespace Pult
             scannedAt = DateTime.UtcNow;
             var local = new Dictionary<string, DesktopMeta>(StringComparer.Ordinal);
             var cli = new Dictionary<string, DesktopMeta>(StringComparer.Ordinal);
+            var seen = new Dictionary<string, DesktopMetaFile>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
                 {
-                    foreach (string file in Directory.EnumerateFiles(root, "local_*.json", SearchOption.AllDirectories))
+                    foreach (FileInfo info in new DirectoryInfo(root).EnumerateFiles("local_*.json", SearchOption.AllDirectories))
                     {
-                        DesktopMeta meta = Read(file);
-                        if (meta == null) continue;
-                        local[meta.LocalId] = meta;
-                        foreach (string id in AllCliIds(file, meta)) cli[id] = meta;
+                        DesktopMetaFile file;
+                        if (!files.TryGetValue(info.FullName, out file) || file.Stamp != info.LastWriteTimeUtc || file.Length != info.Length) file = Load(info);
+                        if (file == null) continue;
+                        seen[info.FullName] = file;
+                        if (file.Meta == null) continue;
+                        local[file.Meta.LocalId] = file.Meta;
+                        foreach (string id in file.CliIds) cli[id] = file.Meta;
                     }
                 }
             }
@@ -117,65 +127,54 @@ namespace Pult
             {
                 AppLog.Append("desktop sessions not scanned: " + error.Message);
             }
+            files = seen;
             byLocal = local;
             byCli = cli;
         }
 
-        private static IEnumerable<string> AllCliIds(string file, DesktopMeta meta)
+        private static DesktopMetaFile Load(FileInfo info)
         {
-            var ids = new List<string>();
-            if (!string.IsNullOrEmpty(meta.CliSessionId)) ids.Add(meta.CliSessionId);
+            string text;
             try
             {
-                Dictionary<string, object> map = Json.TryParseObject(File.ReadAllText(file, new UTF8Encoding(false)));
-                IList prior = Json.Value(map, "priorCliSessionIds") as IList;
-                if (prior != null)
+                text = File.ReadAllText(info.FullName, new UTF8Encoding(false));
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
+            }
+            var file = new DesktopMetaFile { Stamp = info.LastWriteTimeUtc, Length = info.Length, CliIds = new List<string>() };
+            Dictionary<string, object> map = Json.TryParseObject(text);
+            string local = Json.String(map, "sessionId");
+            if (string.IsNullOrEmpty(local)) return file;
+            Dictionary<string, object> spawned = Json.Object(map, "spawnedFrom");
+            file.Meta = new DesktopMeta
+            {
+                LocalId = local,
+                CliSessionId = Json.String(map, "cliSessionId"),
+                Cwd = Json.String(map, "cwd"),
+                OriginCwd = Json.String(map, "originCwd"),
+                Title = Json.String(map, "title"),
+                SpawnedFromLocalId = Json.String(spawned, "sessionId"),
+                SpawnedFromTitle = Json.String(spawned, "title"),
+                ForkedFromLocalId = Json.String(map, "forkedFromSessionId"),
+                LastActivity = Json.Long(map, "lastActivityAt", 0)
+            };
+            if (!string.IsNullOrEmpty(file.Meta.CliSessionId)) file.CliIds.Add(file.Meta.CliSessionId);
+            IList prior = Json.Value(map, "priorCliSessionIds") as IList;
+            if (prior != null)
+            {
+                foreach (object id in prior)
                 {
-                    foreach (object id in prior)
-                    {
-                        var text = id as string;
-                        if (!string.IsNullOrEmpty(text)) ids.Add(text);
-                    }
+                    var value = id as string;
+                    if (!string.IsNullOrEmpty(value)) file.CliIds.Add(value);
                 }
             }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
-            return ids;
-        }
-
-        private static DesktopMeta Read(string file)
-        {
-            try
-            {
-                Dictionary<string, object> map = Json.TryParseObject(File.ReadAllText(file, new UTF8Encoding(false)));
-                string local = Json.String(map, "sessionId");
-                if (string.IsNullOrEmpty(local)) return null;
-                Dictionary<string, object> spawned = Json.Object(map, "spawnedFrom");
-                return new DesktopMeta
-                {
-                    LocalId = local,
-                    CliSessionId = Json.String(map, "cliSessionId"),
-                    Cwd = Json.String(map, "cwd"),
-                    OriginCwd = Json.String(map, "originCwd"),
-                    Title = Json.String(map, "title"),
-                    SpawnedFromLocalId = Json.String(spawned, "sessionId"),
-                    SpawnedFromTitle = Json.String(spawned, "title"),
-                    ForkedFromLocalId = Json.String(map, "forkedFromSessionId"),
-                    LastActivity = Json.Long(map, "lastActivityAt", 0)
-                };
-            }
-            catch (IOException)
-            {
-                return null;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return null;
-            }
+            return file;
         }
     }
 }

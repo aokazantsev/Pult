@@ -123,6 +123,13 @@ namespace Pult.Tests
             Run("cut tool input marks the call truncated", RegressionTests.P14ToolCallTruncatedFlag);
             Run("unmarked sibling folder is not taken", RegressionTests.P16SiblingFolderClaimsTranscript);
             Run("long transcript read across syncs", RegressionTests.P17LongTranscriptReadAcrossSyncs);
+            Run("cut tail moves the phone base", RegressionTests.P18TailCutByKnownLimitAdvancesPhoneSent);
+            Run("tail of a thread absent in hello is not repeated", RegressionTests.P19TailOfThreadAbsentInHelloIsNotRepeated);
+            Run("changed desktop meta is read again", RegressionTests.P20DesktopSessionsRereadChangedFile);
+            Run("prior cli ids find desktop meta", RegressionTests.P21DesktopSessionsFindsByPriorCliId);
+            Run("deleted desktop meta leaves the index", RegressionTests.P22DesktopSessionsDropsDeletedFile);
+            Run("locked and partial desktop meta are retried", RegressionTests.P23DesktopSessionsRetriesLockedAndPartialFile);
+            Run("warm scan indexes desktop meta", RegressionTests.P24DesktopSessionsWarmIndexesBeforeFind);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

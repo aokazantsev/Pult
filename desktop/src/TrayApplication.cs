@@ -42,7 +42,9 @@ namespace Pult
             ServicePointManager.DefaultConnectionLimit = 16;
             ServicePointManager.Expect100Continue = false;
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-            broker = new Broker(relay, TimeSpan.FromSeconds(settings.WaitSeconds), BrokerPollMs, new DesktopSessions(DesktopSessions.DefaultRoot), UserDataPaths.Directory, Broker.DefaultTickMs, Broker.DefaultSnapshotDelayMs);
+            var sessions = new DesktopSessions(DesktopSessions.DefaultRoot);
+            ThreadPool.QueueUserWorkItem(state => sessions.Warm());
+            broker = new Broker(relay, TimeSpan.FromSeconds(settings.WaitSeconds), BrokerPollMs, sessions, UserDataPaths.Directory, Broker.DefaultTickMs, Broker.DefaultSnapshotDelayMs);
             broker.ChoiceDelivery = settings.ChoiceDelivery;
             PairRecord.Delete(UserDataPaths.File("processed-ids.txt"));
             string secret = HookSecret.LoadOrCreate();

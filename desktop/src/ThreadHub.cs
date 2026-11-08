@@ -331,11 +331,11 @@ namespace Pult
         private void QueueTails(IDictionary<string, long> helloFeeds)
         {
             var known = new Dictionary<string, long>();
-            foreach (KeyValuePair<string, long> feed in helloFeeds)
+            foreach (ThreadState state in byId.Values)
             {
-                ThreadState state;
-                if (!byId.TryGetValue(feed.Key, out state)) continue;
-                known[feed.Key] = Math.Max(feed.Value, state.PhoneSent);
+                long seq;
+                if (helloFeeds.TryGetValue(state.Id, out seq)) known[state.Id] = Math.Max(seq, state.PhoneSent);
+                else if (state.PhoneSent > 0) known[state.Id] = state.PhoneSent;
             }
             var plan = new List<TailThread>();
             foreach (ThreadState state in byId.Values) plan.Add(new TailThread { Thread = state.Id, LastSeq = state.LastSeq, OpenRequest = HasOpenRequest(state.Id), LastEvent = state.LastEventTicks });
@@ -345,6 +345,7 @@ namespace Pult
                 long[] range = ranges[thread.Thread];
                 if (range == null) continue;
                 ThreadState state = byId[thread.Thread];
+                if (range[0] - 1 > state.PhoneSent) state.PhoneSent = range[0] - 1;
                 var entries = state.Ring.Where(e => Seq(e) >= range[0] && Seq(e) <= range[1]).ToList();
                 if (entries.Count > 0) SendFeed(state, entries);
             }
