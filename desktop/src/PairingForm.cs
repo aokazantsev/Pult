@@ -59,12 +59,12 @@ namespace Pult
             folderList.Size = new Size(408, 74);
             folderList.CheckOnClick = true;
             folderList.HorizontalScrollbar = true;
+            foreach (DesktopMeta meta in sessions.Recent(8)) folderList.Items.Add(meta.OriginCwd ?? meta.Cwd, true);
             folderList.ItemCheck += (sender, e) => BeginInvoke(new Action(ApplyFolders));
             addFolderButton.Text = "Добавить папку…";
             addFolderButton.Location = new Point(16, 220);
             addFolderButton.Size = new Size(140, 24);
             addFolderButton.Click += (sender, e) => OnAddFolder();
-            foreach (DesktopMeta meta in sessions.Recent(8)) folderList.Items.Add(meta.OriginCwd ?? meta.Cwd, true);
             qrBox.Location = new Point(40, 248);
             qrBox.Size = new Size(360, 360);
             qrBox.SizeMode = PictureBoxSizeMode.Zoom;

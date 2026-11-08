@@ -796,5 +796,16 @@ namespace Pult.Tests
             Expect(loaded.CallIds.ContainsKey("toolu_1") && loaded.CallIds["toolu_1"] == "c1-abc", "call ids survive a restart");
             restarted.Stop();
         }
+
+        public static void P45PairingFormOpensWithRecentFolders()
+        {
+            var rig = new Rig(5);
+            rig.WriteMeta("local_F", "s-f", "C:\\work\\demo", "Тред", null, null);
+            using (var form = new PairingForm(new AppSettings(), null, new DesktopSessions(rig.Meta, TimeSpan.Zero)))
+            {
+                var list = form.Controls.OfType<System.Windows.Forms.CheckedListBox>().Single();
+                Expect(list.CheckedItems.Count == 1 && (string)list.CheckedItems[0] == "C:\\work\\demo", "recent folder is listed and checked");
+            }
+        }
     }
 }

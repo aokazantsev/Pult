@@ -150,6 +150,7 @@ namespace Pult.Tests
             Run("continuation without metadata stays", RegressionTests.P42ContinuationWithoutMetadataStays);
             Run("session of another host does not move the thread", RegressionTests.P43SessionOfAnotherHostDoesNotMoveThread);
             Run("phone texts and call ids survive a restart", RegressionTests.P44PhoneTextsAndCallIdsSurviveRestart);
+            Run("pairing form opens with recent folders", RegressionTests.P45PairingFormOpensWithRecentFolders);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try
