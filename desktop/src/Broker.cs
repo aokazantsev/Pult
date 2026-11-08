@@ -91,6 +91,34 @@ namespace Pult
             get { return new DateTime(Interlocked.Read(ref lastHookTicks), DateTimeKind.Utc); }
         }
 
+        public Dictionary<string, object> StatusView()
+        {
+            lock (gate)
+            {
+                var threads = new List<Dictionary<string, object>>();
+                if (hub.Active)
+                {
+                    foreach (ThreadState state in hub.All().OrderBy(t => t.LastEventTicks)) threads.Add(hub.Describe(state, true));
+                }
+                var requests = new List<Dictionary<string, object>>();
+                foreach (PendingRequest request in pending)
+                {
+                    if (request.Released) continue;
+                    requests.Add(new Dictionary<string, object>
+                    {
+                        { "id", request.Id },
+                        { "kind", request.KindName },
+                        { "thread", request.Thread == null ? null : request.Thread.Id },
+                        { "tool", request.ToolName },
+                        { "answerable", !request.Ghost },
+                        { "handed_to_hook", request.Handed },
+                        { "seconds_left", Math.Max(0, (int)(request.DeadlineUtc - DateTime.UtcNow).TotalSeconds) }
+                    });
+                }
+                return new Dictionary<string, object> { { "mode", ModeName(mode) }, { "threads", threads }, { "requests", requests } };
+            }
+        }
+
         private void ResetIdle()
         {
             Interlocked.Exchange(ref lastHookTicks, DateTime.UtcNow.Ticks);

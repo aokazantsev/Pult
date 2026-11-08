@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.Text;
@@ -9,6 +10,11 @@ namespace Pult
 {
     internal sealed class PairingForm : Form
     {
+        public const string Creating = "creating";
+        public const string Showing = "showing";
+        public const string Paired = "paired";
+        public const string Rejected = "rejected";
+        public const string Failed = "failed";
         private static readonly TimeSpan ReissueMargin = TimeSpan.FromSeconds(20);
 
         private readonly AppSettings settings;
@@ -27,12 +33,14 @@ namespace Pult
         private RelayClient pending;
         private bool creating;
         private bool paired;
-        private readonly bool publishesQr;
+        private string outcome;
+        private string problem;
+        private string pairedPair;
+        private string pairedFingerprint;
 
         public PairingForm(AppSettings settings, Func<RelaySession, RelayClient> startClient, DesktopSessions sessions, PairRequest request)
         {
             this.settings = settings;
-            publishesQr = request != null;
             this.startClient = startClient;
             Text = "Pult — подключить телефон";
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -46,7 +54,7 @@ namespace Pult
             var serverLabel = new Label { Text = "Сервер:", Location = new Point(16, 18), AutoSize = true };
             serverBox.Location = new Point(16, 38);
             serverBox.Width = 408;
-            serverBox.Text = settings.Server;
+            serverBox.Text = request != null && request.Server != null ? request.Server : settings.Server;
             var idleLabel = new Label { Text = "Разорвать сессию после простоя, часов (0,25–36):", Location = new Point(16, 72), AutoSize = true };
             idleBox.Location = new Point(16, 92);
             idleBox.Width = 90;
@@ -54,7 +62,7 @@ namespace Pult
             idleBox.Increment = 0.25m;
             idleBox.Minimum = QrPayload.MinIdleSeconds / 3600m;
             idleBox.Maximum = QrPayload.MaxIdleSeconds / 3600m;
-            idleBox.Value = QrPayload.DefaultIdleSeconds / 3600m;
+            idleBox.Value = Math.Round((request != null && request.IdleSeconds > 0 ? request.IdleSeconds : QrPayload.DefaultIdleSeconds) / 3600m, 2);
             idleBox.ValueChanged += (sender, e) => OnIdleChanged();
             var folderLabel = new Label { Text = "Папки проектов, чьи треды увидит телефон:", Location = new Point(16, 124), AutoSize = true };
             folderList.Location = new Point(16, 144);
@@ -87,7 +95,7 @@ namespace Pult
             newQrButton.Text = "Новый QR";
             newQrButton.Location = new Point(220, 716);
             newQrButton.Size = new Size(100, 30);
-            newQrButton.Click += (sender, e) => StartOffer();
+            newQrButton.Click += (sender, e) => NewQr();
             closeButton.Text = "Закрыть";
             closeButton.Location = new Point(324, 716);
             closeButton.Size = new Size(100, 30);
@@ -108,13 +116,52 @@ namespace Pult
             get { return pending; }
         }
 
+        public Dictionary<string, object> Describe()
+        {
+            var state = new Dictionary<string, object>
+            {
+                { "state", State() },
+                { "server", serverBox.Text.Trim().TrimEnd('/') },
+                { "idle_seconds", IdleSeconds() },
+                { "folders", SelectedFolders() }
+            };
+            if (offer != null && offer.Session.AwaitsPhone)
+            {
+                state["pair"] = offer.Session.Pair;
+                state["qr"] = offer.QrText;
+                state["qr_b64url"] = Base64Url.Encode(new UTF8Encoding(false).GetBytes(offer.QrText));
+                state["qr_valid_seconds"] = Math.Max(0, (int)(offer.ExpiresAtUtc - DateTime.UtcNow - ReissueMargin).TotalSeconds);
+            }
+            if (paired)
+            {
+                state["pair"] = pairedPair;
+                state["fingerprint"] = pairedFingerprint;
+            }
+            if (problem != null) state["problem"] = problem;
+            return state;
+        }
+
+        public void NewQr()
+        {
+            StartOffer();
+        }
+
+        private string State()
+        {
+            if (paired) return Paired;
+            if (creating) return Creating;
+            if (offer != null) return Showing;
+            return outcome ?? Creating;
+        }
+
         public void OnPaired(RelayClient client)
         {
             if (client != pending) return;
             pending = null;
             offer = null;
             paired = true;
-            WithdrawQr();
+            pairedPair = client.Session.Pair;
+            pairedFingerprint = client.Session.Fingerprint;
             ShowQr(null);
             qrBox.Visible = false;
             statusLabel.Text = "Телефон подключён. Сверьте отпечаток с экраном телефона — цифры должны совпасть:";
@@ -132,8 +179,9 @@ namespace Pult
             if (client != pending) return;
             pending = null;
             offer = null;
-            WithdrawQr();
             ShowQr(null);
+            outcome = Rejected;
+            problem = "the phone keys were not certified by the QR secret";
             statusLabel.Text = "Попытка сопряжения не прошла проверку: ключи телефона не заверены секретом из QR. Покажите новый QR.";
             newQrButton.Enabled = true;
             ThreadPool.QueueUserWorkItem(state => PairingFlow.Forget(client));
@@ -144,7 +192,6 @@ namespace Pult
             if (client != pending) return;
             pending = null;
             offer = null;
-            WithdrawQr();
             ShowQr(null);
             ThreadPool.QueueUserWorkItem(state => PairingFlow.Forget(client));
             if (!paired) StartOffer();
@@ -154,8 +201,9 @@ namespace Pult
         {
             if (creating || paired) return;
             creating = true;
+            outcome = null;
+            problem = null;
             newQrButton.Enabled = false;
-            WithdrawQr();
             ShowQr(null);
             fingerprintLabel.Text = "";
             statusLabel.Text = "Создаю заявку на сервере…";
@@ -163,7 +211,7 @@ namespace Pult
             if (server != settings.Server)
             {
                 settings.Server = server;
-                settings.Save();
+                if (!AppSettings.SaveServer(server)) AppLog.Append("pairing: server address not saved to the settings");
             }
             int idle = IdleSeconds();
             RelayClient previous = pending;
@@ -172,17 +220,17 @@ namespace Pult
             ThreadPool.QueueUserWorkItem(state =>
             {
                 if (previous != null) PairingFlow.Abandon(previous, "user");
-                string problem;
-                PairingOffer created = PairingFlow.CreateOffer(server, idle, out problem);
-                Deliver(created, problem);
+                string refusal;
+                PairingOffer created = PairingFlow.CreateOffer(server, idle, out refusal);
+                Deliver(created, refusal);
             });
         }
 
-        private void Deliver(PairingOffer created, string problem)
+        private void Deliver(PairingOffer created, string refusal)
         {
             try
             {
-                BeginInvoke((Action)(() => ShowOffer(created, problem)));
+                BeginInvoke((Action)(() => ShowOffer(created, refusal)));
             }
             catch (InvalidOperationException)
             {
@@ -190,7 +238,7 @@ namespace Pult
             }
         }
 
-        private void ShowOffer(PairingOffer created, string problem)
+        private void ShowOffer(PairingOffer created, string refusal)
         {
             creating = false;
             newQrButton.Enabled = true;
@@ -201,7 +249,9 @@ namespace Pult
             }
             if (created == null)
             {
-                statusLabel.Text = problem;
+                outcome = Failed;
+                problem = refusal;
+                statusLabel.Text = refusal;
                 return;
             }
             created.Session.IdleSeconds = IdleSeconds();
@@ -285,15 +335,8 @@ namespace Pult
         private void RenderQr()
         {
             if (offer == null || !offer.Session.AwaitsPhone) return;
-            string text = offer.QrText;
-            QrCode code = QrCode.EncodeBytes(new UTF8Encoding(false).GetBytes(text));
+            QrCode code = QrCode.EncodeBytes(new UTF8Encoding(false).GetBytes(offer.QrText));
             ShowQr(code.Render(8, 4));
-            if (publishesQr) PairRequest.PublishQr(text);
-        }
-
-        private void WithdrawQr()
-        {
-            if (publishesQr) PairRequest.WithdrawQr();
         }
 
         private void ShowQr(Image image)
@@ -309,7 +352,6 @@ namespace Pult
             RelayClient client = pending;
             pending = null;
             offer = null;
-            WithdrawQr();
             ShowQr(null);
             if (client != null) ThreadPool.QueueUserWorkItem(state => PairingFlow.Abandon(client, "user"));
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -30,6 +31,8 @@ namespace Pult
 
         private bool hadLegacyPair;
 
+        public bool ReadFailed { get; private set; }
+
         public bool ServerConfigured
         {
             get { return Server.Length > 0; }
@@ -59,13 +62,67 @@ namespace Pult
             }
             catch (IOException error)
             {
+                settings.ReadFailed = true;
                 AppLog.Append("settings not read, defaults used: " + error.Message);
             }
             catch (UnauthorizedAccessException error)
             {
+                settings.ReadFailed = true;
                 AppLog.Append("settings not read, defaults used: " + error.Message);
             }
             return settings;
+        }
+
+        public static bool SaveServer(string server)
+        {
+            AppSettings current = Load();
+            if (current.ReadFailed) return false;
+            current.Server = server;
+            return current.Save();
+        }
+
+        public string TrySet(string key, string value)
+        {
+            value = (value ?? "").Trim();
+            int number;
+            bool isNumber = int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out number);
+            switch (key)
+            {
+                case HookPortKey:
+                    if (!isNumber || number < 1 || number > 65535) return HookPortKey + " must be 1-65535";
+                    HookPort = number;
+                    return null;
+                case WaitKey:
+                    if (!isNumber || number < MinWaitSeconds || number > MaxWaitSeconds) return WaitKey + " must be " + MinWaitSeconds + "-" + MaxWaitSeconds;
+                    WaitSeconds = number;
+                    return null;
+                case ChoiceKey:
+                    if (value != "0" && value != "1") return ChoiceKey + " must be 0 or 1";
+                    ChoiceDelivery = value == "1";
+                    return null;
+                case ServerKey:
+                    string server = value.TrimEnd('/');
+                    Uri address;
+                    if (server.Length > 0 && (!Uri.TryCreate(server, UriKind.Absolute, out address) || (address.Scheme != Uri.UriSchemeHttps && address.Scheme != Uri.UriSchemeHttp)))
+                    {
+                        return ServerKey + " must start with https:// (http:// only for debugging)";
+                    }
+                    Server = server;
+                    return null;
+                default:
+                    return "unknown setting " + key + ": " + HookPortKey + ", " + WaitKey + ", " + ChoiceKey + ", " + ServerKey;
+            }
+        }
+
+        public Dictionary<string, object> ToMap()
+        {
+            return new Dictionary<string, object>
+            {
+                { HookPortKey, HookPort },
+                { WaitKey, WaitSeconds },
+                { ChoiceKey, ChoiceDelivery ? 1 : 0 },
+                { ServerKey, Server }
+            };
         }
 
         public string Describe()

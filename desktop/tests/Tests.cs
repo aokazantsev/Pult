@@ -151,22 +151,29 @@ namespace Pult.Tests
             Run("session of another host does not move the thread", RegressionTests.P43SessionOfAnotherHostDoesNotMoveThread);
             Run("phone texts and call ids survive a restart", RegressionTests.P44PhoneTextsAndCallIdsSurviveRestart);
             Run("pairing form opens with recent folders", RegressionTests.P45PairingFormOpensWithRecentFolders);
-            Run("adb pairing: no request file", PairRequestTests.NoRequestFile);
-            Run("adb pairing: request folders are read", PairRequestTests.RequestFoldersAreRead);
-            Run("adb pairing: empty request means recent folders", PairRequestTests.EmptyRequestMeansRecentFolders);
-            Run("adb pairing: requested folders replace recent", PairRequestTests.RequestedFoldersReplaceRecent);
-            Run("adb pairing: requested window publishes QR until closed", PairRequestTests.RequestedFormPublishesQrUntilClosed);
-            Run("adb pairing: clicked window keeps QR off the disk", PairRequestTests.ClickedFormDoesNotPublishQr);
-            Run("adb pairing: pairing withdraws QR", PairRequestTests.PairingWithdrawsQr);
-            Run("adb pairing: rejection withdraws QR", PairRequestTests.RejectionWithdrawsQr);
-            Run("adb pairing: ended claim withdraws QR", PairRequestTests.EndedClaimWithdrawsQr);
-            Run("adb pairing: new QR withdraws the old one", PairRequestTests.NewQrWithdrawsTheOldOne);
-            Run("adb pairing: idle change republishes QR", PairRequestTests.IdleChangeRepublishesQr);
-            Run("adb pairing: busy request is taken later", PairRequestTests.BusyRequestIsTakenLater);
-            Run("adb pairing: requested folders go to the claim", PairRequestTests.RequestedFoldersGoToTheClaim);
-            Run("adb pairing: failed publish leaves no stale QR", PairRequestTests.FailedPublishLeavesNoStaleQr);
-            Run("adb pairing: claim not created is logged", PairRequestTests.ClaimNotCreatedIsLogged);
-            Run("adb pairing: withdraw without file is quiet", PairRequestTests.WithdrawWithoutFileIsQuiet);
+            Run("pairing window: requested folders replace recent", PairRequestTests.RequestedFoldersReplaceRecent);
+            Run("pairing window: requested fields fill the window", PairRequestTests.RequestedFieldsFillTheWindow);
+            Run("pairing window: state follows the window", PairRequestTests.DescribeFollowsTheWindow);
+            Run("pairing window: rejection and failure are states", PairRequestTests.RejectionAndFailureAreStates);
+            Run("pairing window: requested folders go to the claim", PairRequestTests.RequestedFoldersGoToTheClaim);
+            Run("pairing window: claim not created is logged", PairRequestTests.ClaimNotCreatedIsLogged);
+            Run("control: plain commands", ControlTests.PlainCommands);
+            Run("control: pair options", ControlTests.PairOptions);
+            Run("control: other options", ControlTests.OtherOptions);
+            Run("control: settings are validated", ControlTests.SettingsAreValidated);
+            Run("control: settings command writes the file", ControlTests.SettingsCommandWritesTheFile);
+            Run("control: saving the server keeps other keys", ControlTests.SaveServerKeepsOtherKeys);
+            Run("control: log tail", ControlTests.LogTail);
+            Run("control: help lists every command", ControlTests.HelpListsEveryCommand);
+            Run("control: exit codes", ControlTests.ExitCodes);
+            Run("control: pipe is for the user only", ControlTests.PipeIsForTheUserOnly);
+            Run("control: round trip", ControlTests.RoundTrip);
+            Run("control: server refuses bad requests", ControlTests.ServerRefusesBadRequests);
+            Run("control: handler failure is an answer", ControlTests.HandlerFailureIsAnAnswer);
+            Run("control: action after the answer", ControlTests.AfterReplyRunsAfterTheAnswer);
+            Run("control: slow answer times out", ControlTests.SlowAnswerTimesOut);
+            Run("control: pipe held by a stranger is refused", ControlTests.PipeHeldByStrangerIsRefused);
+            Run("control: status lists open requests and threads", StatusListsOpenRequests);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try
@@ -327,6 +334,31 @@ namespace Pult.Tests
             Equal("allow", Json.String(Json.Object(Json.Object(output, "hookSpecificOutput"), "decision"), "behavior"), "behavior");
             Equal("PermissionRequest", Json.String(Json.Object(output, "hookSpecificOutput"), "hookEventName"), "event name");
             Equal(Outcome.Answered, Resolved(relay, id), "outcome");
+        }
+
+        private static void StatusListsOpenRequests()
+        {
+            var relay = new FakeRelay();
+            Broker broker = NewBroker(relay, 5);
+            var channel = new FakeChannel(HookAck.Taken);
+            Thread thread = Start(broker, Permission("ls", null), channel, 60);
+            string id = WaitRequest(relay, "permission_request");
+            Dictionary<string, object> view = broker.StatusView();
+            Equal("phone", view["mode"], "mode");
+            var requests = (List<Dictionary<string, object>>)view["requests"];
+            Equal(1, requests.Count, "open requests");
+            Equal(id, requests[0]["id"], "request id");
+            Equal("permission", requests[0]["kind"], "kind");
+            Equal("Bash", requests[0]["tool"], "tool");
+            Equal(true, requests[0]["answerable"], "answerable");
+            var threads = (List<Dictionary<string, object>>)view["threads"];
+            Equal(1, threads.Count, "threads");
+            Equal(requests[0]["thread"], threads[0]["thread"], "request thread");
+            broker.OnPhoneMessage(Answer("permission_response", id, "decision", "allow"));
+            Finish(thread);
+            Equal(0, ((List<Dictionary<string, object>>)broker.StatusView()["requests"]).Count, "answered request leaves the list");
+            broker.EndSession();
+            Equal(0, ((List<Dictionary<string, object>>)broker.StatusView()["threads"]).Count, "no threads without a session");
         }
 
         private static void PhoneDeny()

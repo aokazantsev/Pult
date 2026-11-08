@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Security;
 using System.Threading;
 using System.Windows.Forms;
@@ -8,9 +10,13 @@ namespace Pult
 {
     internal static class Program
     {
+        private const int StdOutput = -11;
+        private const int AttachParentProcess = -1;
+
         [STAThread]
-        private static int Main()
+        private static int Main(string[] args)
         {
+            if (args.Length > 0) return RunCommand(args);
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += OnThreadException;
@@ -27,6 +33,39 @@ namespace Pult
             }
             return 0;
         }
+
+        private static int RunCommand(string[] args)
+        {
+            Stream output = OpenOutput();
+            try
+            {
+                return ControlClient.Run(args, output, Application.ExecutablePath);
+            }
+            catch (Exception error)
+            {
+                try
+                {
+                    ControlChannel.WriteLine(output, Json.Write(ControlResult.Fail(ControlResult.Failed, error.Message)));
+                }
+                catch (IOException)
+                {
+                }
+                return ControlResult.ExitFailed;
+            }
+        }
+
+        private static Stream OpenOutput()
+        {
+            IntPtr handle = GetStdHandle(StdOutput);
+            if (handle == IntPtr.Zero || handle == new IntPtr(-1)) AttachConsole(AttachParentProcess);
+            return Console.OpenStandardOutput();
+        }
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr GetStdHandle(int handle);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool AttachConsole(int processId);
 
         private static void OnThreadException(object sender, ThreadExceptionEventArgs e)
         {

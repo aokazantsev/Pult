@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -14,6 +16,10 @@ namespace Pult
     internal sealed class TrayApplication : ApplicationContext, ISessionListener
     {
         private const int BrokerPollMs = 200;
+        private const int CommandPollMs = 200;
+        private const int PairPatienceSeconds = 60;
+        private const int UnpairPatienceSeconds = 60;
+        private const int NoticesKept = 20;
         private static readonly TimeSpan DeletePatience = TimeSpan.FromSeconds(10);
 
         private readonly NotifyIcon trayIcon = new NotifyIcon();
@@ -33,6 +39,8 @@ namespace Pult
         private volatile RelayClient active;
         private PairingForm pairingForm;
         private bool unpairing;
+        private readonly ControlServer control;
+        private readonly List<Dictionary<string, object>> notices = new List<Dictionary<string, object>>();
         private readonly DesktopSessions sessions = new DesktopSessions(DesktopSessions.DefaultRoot);
 
         public TrayApplication(AppSettings settings)
@@ -60,7 +68,6 @@ namespace Pult
                 listenerItem.Text = "Нет секрета хуков — хуки не принимаются";
             }
             RestorePair();
-            PairRequest.WithdrawQr();
             ThreadPool.QueueUserWorkItem(state => PairingFlow.CleanLeftoverClaim(null));
             listenerItem.Enabled = false;
             relayItem.Enabled = false;
@@ -90,6 +97,8 @@ namespace Pult
             refreshTimer.Tick += (sender, e) => Refresh();
             refreshTimer.Start();
             Refresh();
+            control = new ControlServer(ControlChannel.PipeName, Execute);
+            control.Start();
             AppLog.Append("tray ready: " + listenerItem.Text);
         }
 
@@ -199,16 +208,16 @@ namespace Pult
             ShowPairingForm(null);
         }
 
-        private void TakePairRequest()
+        private void ReopenPairingForm(PairRequest request)
         {
-            PairRequest request = PairRequest.Take();
-            if (request == null) return;
             if (pairingForm != null && !pairingForm.IsDisposed) pairingForm.Close();
             ShowPairingForm(request);
         }
 
         private void ShowPairingForm(PairRequest request)
         {
+            AppSettings current = AppSettings.Load();
+            if (!current.ReadFailed) settings.Server = current.Server;
             var form = new PairingForm(settings, StartClient, sessions, request);
             pairingForm = form;
             form.FormClosed += (sender, e) =>
@@ -220,10 +229,17 @@ namespace Pult
 
         private void OnUnpair()
         {
-            RelayClient client = active;
-            if (client == null || unpairing) return;
+            if (active == null || unpairing) return;
             if (MessageBox.Show("Разорвать сессию с телефоном? Для новой понадобится новый QR.", AppIdentity.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+            Unpair();
+        }
+
+        private bool Unpair()
+        {
+            RelayClient client = active;
+            if (client == null || unpairing) return false;
             EndActive(client, "user", EndText("user", "pc", client.Session.IdleSeconds));
+            return true;
         }
 
         private void EndActive(RelayClient client, string reason, string text)
@@ -287,6 +303,8 @@ namespace Pult
 
         private void Notify(string text)
         {
+            notices.Add(new Dictionary<string, object> { { "time", DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) }, { "text", text } });
+            if (notices.Count > NoticesKept) notices.RemoveAt(0);
             trayIcon.ShowBalloonTip(8000, AppIdentity.Name, text, ToolTipIcon.Info);
         }
 
@@ -304,7 +322,6 @@ namespace Pult
         private void Refresh()
         {
             CheckIdle();
-            TakePairRequest();
             ControlMode mode = broker.Mode;
             phoneModeItem.Checked = mode == ControlMode.Phone;
             pcModeItem.Checked = mode == ControlMode.Pc;
@@ -345,6 +362,7 @@ namespace Pult
         private void OnExit(object sender, EventArgs e)
         {
             refreshTimer.Stop();
+            if (control != null) control.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             if (listener != null) listener.Dispose();
@@ -353,6 +371,159 @@ namespace Pult
             if (active != null) active.Dispose();
             AppLog.Append("exit");
             ExitThread();
+        }
+
+        private Dictionary<string, object> Execute(ControlCommand command)
+        {
+            try
+            {
+                switch (command.Name)
+                {
+                    case ControlCommand.Status:
+                        return OnUi(StatusReport);
+                    case ControlCommand.Exit:
+                        command.AfterReply = () => Post(() => OnExit(null, EventArgs.Empty));
+                        return ControlResult.Ok();
+                    case ControlCommand.Mode:
+                        return OnUi(() => SetMode(command.TargetMode));
+                    case ControlCommand.Pair:
+                        OnUi(() =>
+                        {
+                            ReopenPairingForm(PairRequest.From(command));
+                            return true;
+                        });
+                        return AwaitQr();
+                    case ControlCommand.NewQr:
+                        Dictionary<string, object> refusal = OnUi(RequestNewQr);
+                        return refusal ?? AwaitQr();
+                    case ControlCommand.Pairing:
+                        return AwaitPairing(command.WaitSeconds, state => state == PairingForm.Creating || state == PairingForm.Showing);
+                    case ControlCommand.ClosePairing:
+                        return OnUi(ClosePairing);
+                    case ControlCommand.Unpair:
+                        return UnpairAndWait();
+                    default:
+                        return ControlResult.Fail(ControlResult.Usage, "not a command of the running Pult: " + command.Name);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                return ControlResult.Fail(ControlResult.Failed, "Pult is exiting");
+            }
+        }
+
+        private T OnUi<T>(Func<T> action)
+        {
+            return (T)ui.Invoke(action);
+        }
+
+        private Dictionary<string, object> SetMode(ControlMode mode)
+        {
+            broker.SetMode(mode);
+            Refresh();
+            Dictionary<string, object> result = ControlResult.Ok();
+            result["mode"] = mode == ControlMode.Pc ? "pc" : "phone";
+            return result;
+        }
+
+        private Dictionary<string, object> RequestNewQr()
+        {
+            if (pairingForm == null || pairingForm.IsDisposed) return ControlResult.Fail(ControlResult.Refused, "no pairing window: pair opens it");
+            pairingForm.NewQr();
+            return null;
+        }
+
+        private Dictionary<string, object> ClosePairing()
+        {
+            Dictionary<string, object> result = ControlResult.Ok();
+            bool open = pairingForm != null && !pairingForm.IsDisposed;
+            result["closed"] = open;
+            if (open) pairingForm.Close();
+            return result;
+        }
+
+        private Dictionary<string, object> AwaitQr()
+        {
+            Dictionary<string, object> result = AwaitPairing(PairPatienceSeconds, shown => shown == PairingForm.Creating);
+            var pairing = result["pairing"] as Dictionary<string, object>;
+            string state = pairing == null ? "closed" : (string)pairing["state"];
+            if (state == PairingForm.Showing) return result;
+            string message = state == PairingForm.Creating ? "no QR in " + PairPatienceSeconds + " s"
+                : pairing != null && pairing.ContainsKey("problem") ? (string)pairing["problem"]
+                : "the pairing window is " + state;
+            Dictionary<string, object> failure = ControlResult.Fail(ControlResult.Failed, message);
+            failure["pairing"] = pairing;
+            return failure;
+        }
+
+        private Dictionary<string, object> AwaitPairing(int seconds, Func<string, bool> waitWhile)
+        {
+            var clock = Stopwatch.StartNew();
+            while (true)
+            {
+                Dictionary<string, object> pairing = OnUi(() => pairingForm == null || pairingForm.IsDisposed ? null : pairingForm.Describe());
+                if (pairing == null || !waitWhile((string)pairing["state"]) || clock.Elapsed.TotalSeconds >= seconds)
+                {
+                    Dictionary<string, object> result = ControlResult.Ok();
+                    result["pairing"] = pairing;
+                    return result;
+                }
+                Thread.Sleep(CommandPollMs);
+            }
+        }
+
+        private Dictionary<string, object> UnpairAndWait()
+        {
+            Dictionary<string, object> refusal = OnUi(() => Unpair() ? null : ControlResult.Fail(ControlResult.Refused, unpairing ? "the pair is being deleted already" : "no pair to break"));
+            if (refusal != null) return refusal;
+            var clock = Stopwatch.StartNew();
+            while (OnUi(() => unpairing))
+            {
+                if (clock.Elapsed.TotalSeconds >= UnpairPatienceSeconds) return ControlResult.Fail(ControlResult.Failed, "the pair is still being deleted after " + UnpairPatienceSeconds + " s");
+                Thread.Sleep(CommandPollMs);
+            }
+            return ControlResult.Ok();
+        }
+
+        private Dictionary<string, object> StatusReport()
+        {
+            Dictionary<string, object> result = ControlResult.Ok();
+            result["version"] = AppIdentity.Version;
+            result["pid"] = Process.GetCurrentProcess().Id;
+            result["exe"] = Application.ExecutablePath;
+            result["data"] = UserDataPaths.Directory;
+            result["hooks"] = new Dictionary<string, object>
+            {
+                { "state", listener == null ? "no_secret" : listener.State.ToString().ToLowerInvariant() },
+                { "port", settings.HookPort },
+                { "text", listenerItem.Text }
+            };
+            result["relay"] = RelayReport();
+            foreach (KeyValuePair<string, object> part in broker.StatusView()) result[part.Key] = part.Value;
+            result["tray"] = trayIcon.Text;
+            result["pairing"] = pairingForm == null || pairingForm.IsDisposed ? null : pairingForm.Describe();
+            result["notices"] = new List<Dictionary<string, object>>(notices);
+            return result;
+        }
+
+        private Dictionary<string, object> RelayReport()
+        {
+            RelayClient client = active;
+            var report = new Dictionary<string, object> { { "text", RelayText() }, { "paired", client != null }, { "unpairing", unpairing } };
+            if (client == null) return report;
+            RelaySession session = client.Session;
+            report["server"] = session.Server;
+            report["pair"] = session.Pair;
+            report["fingerprint"] = session.Fingerprint;
+            report["paired_at"] = session.PairedAtUtc == DateTime.MinValue ? null : session.PairedAtUtc.ToLocalTime().ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
+            report["folders"] = new List<string>(session.Folders);
+            report["idle_seconds"] = session.IdleSeconds;
+            report["idle_left_seconds"] = Math.Max(0, session.IdleSeconds - (int)(DateTime.UtcNow - broker.LastHookUtc).TotalSeconds);
+            report["connected"] = client.Connected;
+            report["server_problem"] = client.ServerProblem;
+            report["phone_compatible"] = client.PhoneCompatible;
+            report["phone_on_screen"] = client.PhoneStreamOpen;
+            return report;
         }
 
         [DllImport("user32.dll")]
