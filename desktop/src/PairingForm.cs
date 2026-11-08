@@ -29,11 +29,6 @@ namespace Pult
         private bool paired;
         private readonly bool publishesQr;
 
-        public PairingForm(AppSettings settings, Func<RelaySession, RelayClient> startClient, DesktopSessions sessions)
-            : this(settings, startClient, sessions, null)
-        {
-        }
-
         public PairingForm(AppSettings settings, Func<RelaySession, RelayClient> startClient, DesktopSessions sessions, PairRequest request)
         {
             this.settings = settings;
@@ -267,7 +262,7 @@ namespace Pult
         {
             using (var dialog = new FolderBrowserDialog())
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                if (dialog.ShowDialog(this) != DialogResult.OK || IsDisposed) return;
                 if (AddFolder(dialog.SelectedPath)) ApplyFolders();
             }
         }

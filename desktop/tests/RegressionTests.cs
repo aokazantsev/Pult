@@ -801,7 +801,7 @@ namespace Pult.Tests
         {
             var rig = new Rig(5);
             rig.WriteMeta("local_F", "s-f", "C:\\work\\demo", "Тред", null, null);
-            using (var form = new PairingForm(new AppSettings(), null, new DesktopSessions(rig.Meta, TimeSpan.Zero)))
+            using (var form = new PairingForm(new AppSettings(), null, new DesktopSessions(rig.Meta, TimeSpan.Zero), null))
             {
                 var list = form.Controls.OfType<System.Windows.Forms.CheckedListBox>().Single();
                 Expect(list.CheckedItems.Count == 1 && (string)list.CheckedItems[0] == "C:\\work\\demo", "recent folder is listed and checked");

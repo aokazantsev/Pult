@@ -157,6 +157,15 @@ namespace Pult.Tests
             Run("adb pairing: requested folders replace recent", PairRequestTests.RequestedFoldersReplaceRecent);
             Run("adb pairing: requested window publishes QR until closed", PairRequestTests.RequestedFormPublishesQrUntilClosed);
             Run("adb pairing: clicked window keeps QR off the disk", PairRequestTests.ClickedFormDoesNotPublishQr);
+            Run("adb pairing: pairing withdraws QR", PairRequestTests.PairingWithdrawsQr);
+            Run("adb pairing: rejection withdraws QR", PairRequestTests.RejectionWithdrawsQr);
+            Run("adb pairing: ended claim withdraws QR", PairRequestTests.EndedClaimWithdrawsQr);
+            Run("adb pairing: new QR withdraws the old one", PairRequestTests.NewQrWithdrawsTheOldOne);
+            Run("adb pairing: idle change republishes QR", PairRequestTests.IdleChangeRepublishesQr);
+            Run("adb pairing: busy request is taken later", PairRequestTests.BusyRequestIsTakenLater);
+            Run("adb pairing: requested folders go to the claim", PairRequestTests.RequestedFoldersGoToTheClaim);
+            Run("adb pairing: failed publish leaves no stale QR", PairRequestTests.FailedPublishLeavesNoStaleQr);
+            Run("adb pairing: claim not created is logged", PairRequestTests.ClaimNotCreatedIsLogged);
             Run("adb pairing: withdraw without file is quiet", PairRequestTests.WithdrawWithoutFileIsQuiet);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);

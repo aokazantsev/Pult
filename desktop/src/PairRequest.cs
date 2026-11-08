@@ -58,10 +58,12 @@ namespace Pult
             catch (IOException error)
             {
                 AppLog.Append("pair request: QR not written: " + error.Message);
+                WithdrawQr();
             }
             catch (UnauthorizedAccessException error)
             {
                 AppLog.Append("pair request: QR not written: " + error.Message);
+                WithdrawQr();
             }
         }
 

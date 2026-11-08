@@ -17,11 +17,16 @@ namespace Pult
             if (!Uri.TryCreate(server, UriKind.Absolute, out address) || (address.Scheme != Uri.UriSchemeHttps && address.Scheme != Uri.UriSchemeHttp))
             {
                 problem = "Адрес сервера должен начинаться с https:// (http:// — только для отладки)";
+                AppLog.Append("pairing: claim not created: bad server address");
                 return null;
             }
             bool reachable;
             problem = ServerInfo.Check(server, TimeoutMs, out reachable);
-            if (problem != null) return null;
+            if (problem != null)
+            {
+                AppLog.Append("pairing: claim not created: " + problem);
+                return null;
+            }
             PairKeys keys;
             try
             {

@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import ru.aokazantsev.pult.di.AppGraphHolder
+import ru.aokazantsev.pult.pairing.PairingProgress
 
 class DebugPairActivity : Activity() {
 
@@ -30,6 +31,11 @@ class DebugPairActivity : Activity() {
             Log.w(TAG, "failed: the phone is already paired (${existing.pair}); run pm clear first")
             return
         }
+        if (graph.pairingController.progress.value is PairingProgress.Working) {
+            Log.w(TAG, "failed: the previous attempt is still running; wait for its result")
+            return
+        }
+        graph.pairingController.dismiss()
         val log = DebugPairingLog(graph.pairingController.progress, graph.pairStore.pair) { Log.i(TAG, it) }
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch { log.follow() }
         graph.pairingController.submit(qrText)

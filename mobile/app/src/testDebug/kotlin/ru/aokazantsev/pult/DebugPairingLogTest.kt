@@ -1,5 +1,6 @@
 package ru.aokazantsev.pult
 
+import java.util.Base64
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -55,6 +56,15 @@ class DebugPairingLogTest {
     }
 
     @Test
+    fun staleFailureEndsFollowingAtOnce() = runTest {
+        progress.value = PairingProgress.Failed("QR устарел")
+        val job = launch { DebugPairingLog(progress, pair, FOLLOW_MS) { lines += it }.follow() }
+        runCurrent()
+        assertTrue(job.isCompleted)
+        assertEquals(listOf("failed: QR устарел"), lines)
+    }
+
+    @Test
     fun reportsPairGoneBeforeHello() = runTest {
         val job = launch { DebugPairingLog(progress, pair, FOLLOW_MS) { lines += it }.follow() }
         runCurrent()
@@ -83,6 +93,16 @@ class DebugPairingLogTest {
         assertEquals(null, DebugQrExtra.decode("not base64!"))
         assertEquals(null, DebugQrExtra.decode(null))
         assertEquals(null, DebugQrExtra.decode(""))
+    }
+
+    @Test
+    fun decodesExtraBuiltByTheInstruction() {
+        assertEquals("<<??>>", DebugQrExtra.decode("PDw_Pz4-"))
+        assertEquals(null, DebugQrExtra.decode("PDw/Pz4+"))
+        listOf("{\"v\":[2]}x", "{\"v\":[2]}xy").forEach { text ->
+            val unpadded = Base64.getUrlEncoder().withoutPadding().encodeToString(text.encodeToByteArray())
+            assertEquals(text, DebugQrExtra.decode(unpadded))
+        }
     }
 
     private fun stored(confirmed: Boolean) = StoredPair(
