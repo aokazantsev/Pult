@@ -102,16 +102,27 @@ namespace Pult
                     return null;
                 case ServerKey:
                     string server = value.TrimEnd('/');
-                    Uri address;
-                    if (server.Length > 0 && (!Uri.TryCreate(server, UriKind.Absolute, out address) || (address.Scheme != Uri.UriSchemeHttps && address.Scheme != Uri.UriSchemeHttp)))
-                    {
-                        return ServerKey + " must start with https:// (http:// only for debugging)";
-                    }
+                    string refusal = server.Length == 0 ? null : ServerProblem(server);
+                    if (refusal != null) return ServerKey + " " + refusal;
                     Server = server;
                     return null;
                 default:
                     return "unknown setting " + key + ": " + HookPortKey + ", " + WaitKey + ", " + ChoiceKey + ", " + ServerKey;
             }
+        }
+
+        public static string ServerProblem(string server)
+        {
+            Uri address;
+            foreach (char symbol in server)
+            {
+                if (char.IsControl(symbol)) return "must not contain control characters";
+            }
+            if (!Uri.TryCreate(server, UriKind.Absolute, out address) || (address.Scheme != Uri.UriSchemeHttps && address.Scheme != Uri.UriSchemeHttp))
+            {
+                return "must start with https:// (http:// only for debugging)";
+            }
+            return null;
         }
 
         public Dictionary<string, object> ToMap()

@@ -114,13 +114,15 @@ namespace Pult
                     case "--server":
                         Server = value.Trim().TrimEnd('/');
                         if (Server.Length == 0) return "--server is empty";
+                        string refusal = AppSettings.ServerProblem(Server);
+                        if (refusal != null) return "--server " + refusal;
                         break;
                     case "--idle-hours":
                         decimal hours;
-                        if (!decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out hours)) return "--idle-hours is not a number: " + value;
-                        decimal seconds = Math.Round(hours * 3600m);
-                        if (seconds < QrPayload.MinIdleSeconds || seconds > QrPayload.MaxIdleSeconds) return "--idle-hours must be 0.25-36";
-                        IdleSeconds = (int)seconds;
+                        if (!decimal.TryParse(value.Replace(',', '.'), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out hours)) return "--idle-hours is not a number: " + value;
+                        hours = Math.Round(hours, 2);
+                        if (hours < QrPayload.MinIdleSeconds / 3600m || hours > QrPayload.MaxIdleSeconds / 3600m) return "--idle-hours must be 0.25-36";
+                        IdleSeconds = (int)(hours * 3600m);
                         break;
                     default:
                         return "unexpected argument: " + option;
@@ -164,10 +166,17 @@ namespace Pult
             return null;
         }
 
+        private static bool IsSlash(char symbol)
+        {
+            return symbol == '\\' || symbol == '/';
+        }
+
         private static string ResolveFolder(string value, string workingDirectory)
         {
             string trimmed = value.Trim();
             if (trimmed.Length == 0) return null;
+            if (IsSlash(trimmed[0]) && !(trimmed.Length > 1 && IsSlash(trimmed[1]))) return null;
+            if (trimmed.Length >= 2 && trimmed[1] == ':' && (trimmed.Length == 2 || !IsSlash(trimmed[2]))) return null;
             try
             {
                 if (!Path.IsPathRooted(trimmed))

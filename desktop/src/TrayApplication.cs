@@ -17,8 +17,8 @@ namespace Pult
     {
         private const int BrokerPollMs = 200;
         private const int CommandPollMs = 200;
-        private const int PairPatienceSeconds = 60;
-        private const int UnpairPatienceSeconds = 60;
+        public const int PairPatienceSeconds = 60;
+        public const int UnpairPatienceSeconds = 60;
         private const int NoticesKept = 20;
         private static readonly TimeSpan DeletePatience = TimeSpan.FromSeconds(10);
 
@@ -39,6 +39,7 @@ namespace Pult
         private volatile RelayClient active;
         private PairingForm pairingForm;
         private bool unpairing;
+        private bool exiting;
         private readonly ControlServer control;
         private readonly List<Dictionary<string, object>> notices = new List<Dictionary<string, object>>();
         private readonly DesktopSessions sessions = new DesktopSessions(DesktopSessions.DefaultRoot);
@@ -200,19 +201,21 @@ namespace Pult
 
         private void OnPair()
         {
-            if (pairingForm != null && !pairingForm.IsDisposed)
+            if (OpenedByUser(pairingForm))
             {
-                if (!pairingForm.Visible) pairingForm.Show();
                 pairingForm.Activate();
                 return;
             }
+            if (pairingForm != null && !pairingForm.IsDisposed) pairingForm.Close();
             OpenPairingForm(null).Show();
         }
 
-        private void ReopenPairingForm(PairRequest request)
+        private PairingForm ReopenPairingForm(PairRequest request)
         {
             if (pairingForm != null && !pairingForm.IsDisposed) pairingForm.Close();
-            OpenPairingForm(request).Begin();
+            PairingForm form = OpenPairingForm(request);
+            form.Begin();
+            return form;
         }
 
         private PairingForm OpenPairingForm(PairRequest request)
@@ -230,15 +233,20 @@ namespace Pult
 
         private void OnUnpair()
         {
-            if (active == null || unpairing) return;
+            RelayClient client = active;
+            if (client == null || unpairing) return;
             if (MessageBox.Show("Разорвать сессию с телефоном? Для новой понадобится новый QR.", AppIdentity.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
-            Unpair();
+            Unpair(client);
         }
 
-        private bool Unpair()
+        public static bool CanUnpair(object asked, object current, bool deleting, bool leaving)
         {
-            RelayClient client = active;
-            if (client == null || unpairing) return false;
+            return asked != null && asked == current && !deleting && !leaving;
+        }
+
+        private bool Unpair(RelayClient client)
+        {
+            if (!CanUnpair(client, active, unpairing, exiting)) return false;
             EndActive(client, "user", EndText("user", "pc", client.Session.IdleSeconds));
             return true;
         }
@@ -362,6 +370,8 @@ namespace Pult
 
         private void OnExit(object sender, EventArgs e)
         {
+            if (exiting) return;
+            exiting = true;
             refreshTimer.Stop();
             if (control != null) control.Dispose();
             trayIcon.Visible = false;
@@ -384,21 +394,19 @@ namespace Pult
                         return OnUi(StatusReport);
                     case ControlCommand.Exit:
                         command.AfterReply = () => Post(() => OnExit(null, EventArgs.Empty));
-                        return ControlResult.Ok();
+                        Dictionary<string, object> leaving = ControlResult.Ok();
+                        leaving["pid"] = Process.GetCurrentProcess().Id;
+                        return leaving;
                     case ControlCommand.Mode:
                         return OnUi(() => SetMode(command.TargetMode));
                     case ControlCommand.Pair:
-                        OnUi(() =>
-                        {
-                            ReopenPairingForm(PairRequest.From(command));
-                            return true;
-                        });
-                        return AwaitQr();
+                        return AwaitQr(OnUi(() => ReopenPairingForm(PairRequest.From(command))));
                     case ControlCommand.NewQr:
-                        Dictionary<string, object> refusal = OnUi(RequestNewQr);
-                        return refusal ?? AwaitQr();
+                        PairingForm renewed = null;
+                        Dictionary<string, object> refusal = OnUi(() => RequestNewQr(out renewed));
+                        return refusal ?? AwaitQr(renewed);
                     case ControlCommand.Pairing:
-                        return AwaitPairing(command.WaitSeconds, state => state == PairingForm.Creating || state == PairingForm.Showing);
+                        return AwaitPairing(OnUi(() => pairingForm), command.WaitSeconds, state => state == PairingForm.Creating || state == PairingForm.Showing);
                     case ControlCommand.ClosePairing:
                         return OnUi(ClosePairing);
                     case ControlCommand.Unpair:
@@ -409,6 +417,7 @@ namespace Pult
             }
             catch (InvalidOperationException)
             {
+                if (!exiting && ui.IsHandleCreated) throw;
                 return ControlResult.Fail(ControlResult.Failed, "Pult is exiting");
             }
         }
@@ -427,28 +436,57 @@ namespace Pult
             return result;
         }
 
-        private Dictionary<string, object> RequestNewQr()
+        private Dictionary<string, object> RequestNewQr(out PairingForm form)
         {
-            if (pairingForm == null || pairingForm.IsDisposed) return ControlResult.Fail(ControlResult.Refused, "no pairing window: pair opens it");
-            pairingForm.NewQr();
+            form = pairingForm;
+            Dictionary<string, object> refusal = CommandWindowRefusal(form);
+            if (refusal != null) return refusal;
+            form.NewQr();
             return null;
         }
 
         private Dictionary<string, object> ClosePairing()
         {
-            Dictionary<string, object> result = ControlResult.Ok();
-            bool open = pairingForm != null && !pairingForm.IsDisposed;
-            result["closed"] = open;
-            if (open) pairingForm.Close();
-            return result;
+            if (pairingForm == null || pairingForm.IsDisposed)
+            {
+                Dictionary<string, object> result = ControlResult.Ok();
+                result["closed"] = false;
+                return result;
+            }
+            Dictionary<string, object> refusal = CommandWindowRefusal(pairingForm);
+            if (refusal != null) return refusal;
+            pairingForm.Close();
+            Dictionary<string, object> done = ControlResult.Ok();
+            done["closed"] = true;
+            return done;
         }
 
-        private Dictionary<string, object> AwaitQr()
+        public static bool OpenedByUser(PairingForm form)
         {
-            Dictionary<string, object> result = AwaitPairing(PairPatienceSeconds, shown => shown == PairingForm.Creating);
-            var pairing = result["pairing"] as Dictionary<string, object>;
+            return form != null && !form.IsDisposed && form.Visible;
+        }
+
+        public static Dictionary<string, object> CommandWindowRefusal(PairingForm form)
+        {
+            if (form == null || form.IsDisposed) return ControlResult.Fail(ControlResult.Refused, "no pairing window: pair opens it");
+            if (OpenedByUser(form)) return ControlResult.Fail(ControlResult.Refused, "the pairing window on the screen was opened by the user: pair opens a window of its own");
+            return null;
+        }
+
+        private Dictionary<string, object> AwaitQr(PairingForm form)
+        {
+            return QrAnswer(AwaitPairing(form, PairPatienceSeconds, shown => shown == PairingForm.Creating)["pairing"] as Dictionary<string, object>);
+        }
+
+        public static Dictionary<string, object> QrAnswer(Dictionary<string, object> pairing)
+        {
             string state = pairing == null ? "closed" : (string)pairing["state"];
-            if (state == PairingForm.Showing) return result;
+            if (state == PairingForm.Showing)
+            {
+                Dictionary<string, object> result = ControlResult.Ok();
+                result["pairing"] = pairing;
+                return result;
+            }
             string message = state == PairingForm.Creating ? "no QR in " + PairPatienceSeconds + " s"
                 : pairing != null && pairing.ContainsKey("problem") ? (string)pairing["problem"]
                 : "the pairing window is " + state;
@@ -457,12 +495,12 @@ namespace Pult
             return failure;
         }
 
-        private Dictionary<string, object> AwaitPairing(int seconds, Func<string, bool> waitWhile)
+        private Dictionary<string, object> AwaitPairing(PairingForm form, int seconds, Func<string, bool> waitWhile)
         {
             var clock = Stopwatch.StartNew();
             while (true)
             {
-                Dictionary<string, object> pairing = OnUi(() => pairingForm == null || pairingForm.IsDisposed ? null : pairingForm.Describe());
+                Dictionary<string, object> pairing = OnUi(() => form == null || form != pairingForm || form.IsDisposed ? null : form.Describe());
                 if (pairing == null || !waitWhile((string)pairing["state"]) || clock.Elapsed.TotalSeconds >= seconds)
                 {
                     Dictionary<string, object> result = ControlResult.Ok();
@@ -475,7 +513,7 @@ namespace Pult
 
         private Dictionary<string, object> UnpairAndWait()
         {
-            Dictionary<string, object> refusal = OnUi(() => Unpair() ? null : ControlResult.Fail(ControlResult.Refused, unpairing ? "the pair is being deleted already" : "no pair to break"));
+            Dictionary<string, object> refusal = OnUi(() => Unpair(active) ? null : ControlResult.Fail(ControlResult.Refused, unpairing ? "the pair is being deleted already" : "no pair to break"));
             if (refusal != null) return refusal;
             var clock = Stopwatch.StartNew();
             while (OnUi(() => unpairing))

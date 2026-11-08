@@ -203,7 +203,15 @@ namespace Pult
             offer = null;
             ShowQr(null);
             ThreadPool.QueueUserWorkItem(state => PairingFlow.Forget(client));
-            if (!paired) StartOffer();
+            if (paired) return;
+            if (Visible)
+            {
+                StartOffer();
+                return;
+            }
+            outcome = Failed;
+            problem = "the claim ended on the server before the phone paired";
+            AppLog.Append("pairing: claim " + client.Session.Pair + " of the hidden window ended on the server, no new QR");
         }
 
         private void StartOffer()
@@ -288,6 +296,12 @@ namespace Pult
             TimeSpan left = offer.ExpiresAtUtc - DateTime.UtcNow;
             if (left <= ReissueMargin)
             {
+                if (!Visible)
+                {
+                    AppLog.Append("pairing: claim " + offer.Session.Pair + " of the hidden window is about to expire, closing the window");
+                    Close();
+                    return;
+                }
                 AppLog.Append("pairing: claim " + offer.Session.Pair + " is about to expire, issuing a new QR");
                 StartOffer();
                 return;

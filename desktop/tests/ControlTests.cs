@@ -7,6 +7,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
+using System.Windows.Forms;
 
 namespace Pult.Tests
 {
@@ -51,9 +52,22 @@ namespace Pult.Tests
             Expect(command.IdleSeconds == 1800, "idle in seconds");
             Expect(Parse("pair").Folders.Count == 0 && Parse("pair").IdleSeconds == 0 && Parse("pair").Server == null, "pair without options");
             Expect(Parse("pair", "--folder", "C:\\").Folders[0] == "C:\\", "drive root stays a root");
+            foreach (string partial in new[] { "\\work\\lab", "/work/lab", "D:lab", "D:" })
+            {
+                Expect(Refusal("pair", "--folder", partial).Contains("not a folder path"), "a path relative to a drive or its root is refused: " + partial);
+            }
+            Expect(Parse("pair", "--folder", "\\\\server\\share\\lab").Folders[0] == "\\\\server\\share\\lab", "a network path is a full path");
             Expect(Refusal("pair", "--idle-hours", "0.2").Contains("0.25-36"), "idle below the minimum");
             Expect(Refusal("pair", "--idle-hours", "37").Contains("0.25-36"), "idle above the maximum");
             Expect(Refusal("pair", "--idle-hours", "x").Contains("not a number"), "idle not a number");
+            Expect(Parse("pair", "--idle-hours", "0,5").IdleSeconds == 1800 && Parse("pair", "--idle-hours", "1,25").IdleSeconds == 4500, "a comma is the decimal separator, not thousands");
+            Expect(Refusal("pair", "--idle-hours", "1,000.5") != null, "thousands are refused");
+            Expect(Refusal("pair", "--idle-hours", "99999999999999999999999999").Contains("0.25-36"), "a huge number is a usage error, not an overflow");
+            Expect(Parse("pair", "--idle-hours", "0.333").IdleSeconds == 1188, "hours are rounded to the window grid of 0.01 h");
+            Expect(Parse("pair", "--idle-hours", "0.25").IdleSeconds == 900 && Parse("pair", "--idle-hours", "36").IdleSeconds == 129600, "bounds are accepted");
+            Expect(Refusal("pair", "--server", "ftp://example.com").Contains("https://"), "server scheme is checked like settings set");
+            Expect(Refusal("pair", "--server", "example.com").Contains("https://"), "server without a scheme is refused");
+            Expect(Refusal("pair", "--server", "https://example.com/x\nhook_port=1").Contains("control characters"), "a line break in the server is refused");
             Expect(Refusal("pair", "--folder").Contains("needs a value"), "folder without value");
             Expect(Refusal("pair", "--folder", " ").Contains("not a folder"), "empty folder");
             Expect(Refusal("pair", "--server", " ").Contains("empty"), "empty server");
@@ -87,6 +101,7 @@ namespace Pult.Tests
             Expect(settings.TrySet("server", "ftp://example.com") != null, "server scheme");
             Expect(settings.TrySet("server", "https://example.com/pult/") == null && settings.Server == "https://example.com/pult", "server set");
             Expect(settings.TrySet("server", "") == null && settings.Server == "", "server cleared");
+            Expect(settings.TrySet("server", "https://example.com/x\nhook_port=1").Contains("control characters") && settings.Server == "", "a line break cannot add a key to the file");
             Expect(settings.TrySet("pair", "x").Contains("unknown setting"), "unknown key");
         }
 
@@ -196,11 +211,16 @@ namespace Pult.Tests
         public static void HandlerFailureIsAnAnswer()
         {
             string name = TestPipe();
-            using (var server = new ControlServer(name, command => { throw new InvalidDataException("boom"); }))
+            foreach (Exception failure in new Exception[] { new InvalidDataException("boom"), new InvalidOperationException("boom"), new NullReferenceException("boom") })
             {
-                server.Start();
-                Dictionary<string, object> answer = ControlClient.Send(name, new[] { "status" }, 10);
-                Expect(Json.String(answer, "error") == ControlResult.Failed && Json.String(answer, "message") == "boom", "failure answer: " + Json.Write(answer));
+                Exception thrown = failure;
+                using (var server = new ControlServer(name, command => { throw thrown; }))
+                {
+                    server.Start();
+                    Dictionary<string, object> answer = ControlClient.Send(name, new[] { "status" }, 10);
+                    Expect(Json.String(answer, "error") == ControlResult.Failed && Json.String(answer, "message") == "boom", thrown.GetType().Name + " is an answer: " + Json.Write(answer));
+                    Expect(Json.String(ControlClient.Send(name, new[] { "status" }, 10), "error") == ControlResult.Failed, thrown.GetType().Name + ": the next request is answered too");
+                }
             }
         }
 
@@ -236,6 +256,215 @@ namespace Pult.Tests
                 release.Set();
                 Expect(Json.String(answer, "error") == ControlResult.Failed && Json.String(answer, "message").Contains("did not answer"), "timeout: " + Json.Write(answer));
             }
+        }
+
+        public static void ServerStopsOnForeignOwner()
+        {
+            string name = TestPipe();
+            Expect(!new ControlServer(name, command => ControlResult.Ok(), pipe => false).Start(), "a pipe of another owner is not served");
+            int checks = 0;
+            using (var server = new ControlServer(name, command => ControlResult.Ok(), pipe => ++checks == 1))
+            {
+                Expect(server.Start(), "the first instance is ours");
+                Expect(Json.Bool(ControlClient.Send(name, new[] { "status" }, 10), "ok"), "the connected request is served");
+                Expect(ControlResult.ExitCode(ControlClient.Send(name, new[] { "status" }, 10)) == ControlResult.ExitNotRunning, "the next instance of another owner stops the channel");
+                Thread.Sleep(2500);
+                Expect(checks == 2, "a foreign owner is not retried: " + checks);
+            }
+        }
+
+        public static void ServerRetriesATransientFailure()
+        {
+            string name = TestPipe();
+            using (var server = new ControlServer(name, command => ControlResult.Ok()))
+            {
+                int creations = 0;
+                server.CreateInstance = () =>
+                {
+                    if (++creations == 2) throw new IOException("busy");
+                    return server.Create();
+                };
+                Expect(server.Start(), "server starts");
+                Expect(Json.Bool(ControlClient.Send(name, new[] { "status" }, 10), "ok"), "first request");
+                Thread.Sleep(1500);
+                Expect(Json.Bool(ControlClient.Send(name, new[] { "status" }, 10), "ok"), "the channel comes back after a transient failure");
+            }
+        }
+
+        public static void ClientRefusesForeignOwner()
+        {
+            string name = TestPipe();
+            int calls = 0;
+            using (var server = new ControlServer(name, command =>
+            {
+                calls++;
+                return ControlResult.Ok();
+            }))
+            {
+                server.Start();
+                Dictionary<string, object> answer = ControlClient.Send(name, new[] { "status" }, 10, pipe => false);
+                Expect(Json.String(answer, "error") == ControlResult.Refused && calls == 0, "the client does not talk to a pipe of another owner: " + Json.Write(answer));
+            }
+        }
+
+        public static void RequestsAreServedInParallel()
+        {
+            string name = TestPipe();
+            var release = new ManualResetEvent(false);
+            using (var server = new ControlServer(name, command =>
+            {
+                if (command.Name == ControlCommand.Pairing) release.WaitOne(10000);
+                return ControlResult.Ok();
+            }))
+            {
+                server.Start();
+                Dictionary<string, object> waiting = null;
+                var slow = new Thread(() => waiting = ControlClient.Send(name, new[] { "pairing", "--wait", "5" }, 20));
+                slow.Start();
+                Thread.Sleep(300);
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                Dictionary<string, object> quick = ControlClient.Send(name, new[] { "status" }, 3);
+                Expect(Json.Bool(quick, "ok") && clock.ElapsedMilliseconds < 3000, "status is answered while pairing waits: " + Json.Write(quick));
+                release.Set();
+                slow.Join(10000);
+                Expect(Json.Bool(waiting, "ok"), "the waiting request is answered too");
+                for (int i = 0; i < 20; i++)
+                {
+                    Expect(Json.Bool(ControlClient.Send(name, new[] { "status" }, 5), "ok"), "request " + i + " in a row is served");
+                }
+            }
+        }
+
+        public static void AfterReplyWaitsForTheAnswer()
+        {
+            string name = TestPipe();
+            var answered = new ManualResetEvent(false);
+            var done = new ManualResetEvent(false);
+            bool sawAnswer = false;
+            using (var server = new ControlServer(name, command =>
+            {
+                command.AfterReply = () =>
+                {
+                    sawAnswer = answered.WaitOne(3000);
+                    done.Set();
+                };
+                return ControlResult.Ok();
+            }))
+            {
+                server.Start();
+                Expect(Json.Bool(ControlClient.Send(name, new[] { "exit" }, 10), "ok"), "exit answered");
+                answered.Set();
+                Expect(done.WaitOne(5000) && sawAnswer, "the action runs after the client has the answer");
+            }
+        }
+
+        public static void ExitWaitsForTheProcess()
+        {
+            string name = TestPipe();
+            var start = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "PING.EXE"), "-n 3 127.0.0.1") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
+            using (System.Diagnostics.Process child = System.Diagnostics.Process.Start(start))
+            using (var server = new ControlServer(name, command =>
+            {
+                Dictionary<string, object> result = ControlResult.Ok();
+                result["pid"] = child.Id;
+                return result;
+            }))
+            {
+                server.Start();
+                Dictionary<string, object> answer = ControlClient.Execute(Parse("exit"), new[] { "exit" }, name, null);
+                Expect(Json.Bool(answer, "ok") && child.HasExited, "exit returns after the process is gone: " + Json.Write(answer));
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                Expect(Json.Bool(ControlClient.Execute(Parse("exit"), new[] { "exit" }, name, null), "ok") && clock.ElapsedMilliseconds < 3000, "a process already gone is done at once");
+            }
+        }
+
+        public static void StartLeavesARunningPult()
+        {
+            string name = TestPipe();
+            using (var server = new ControlServer(name, command => ControlResult.Ok()))
+            {
+                server.Start();
+                Dictionary<string, object> answer = ControlClient.Execute(Parse("start"), null, name, "C:\\no-such-folder\\Pult.exe");
+                Expect(Json.Bool(answer, "ok") && Json.Value(answer, "started") is bool && !(bool)answer["started"], "a running Pult is not started again: " + Json.Write(answer));
+            }
+            Dictionary<string, object> missing = ControlClient.Execute(Parse("start"), null, name, "C:\\no-such-folder\\Pult.exe");
+            Expect(Json.String(missing, "error") == ControlResult.Failed && Json.String(missing, "message").Contains("not started"), "a missing exe is reported: " + Json.Write(missing));
+        }
+
+        public static void ClientWaitsLongerThanTheServer()
+        {
+            Expect(ControlClient.AnswerSeconds(Parse("pairing", "--wait", "600")) > 600, "pairing --wait");
+            Expect(ControlClient.AnswerSeconds(Parse("pair")) > TrayApplication.PairPatienceSeconds, "pair");
+            Expect(ControlClient.AnswerSeconds(Parse("new-qr")) > TrayApplication.PairPatienceSeconds, "new-qr");
+            Expect(ControlClient.AnswerSeconds(Parse("unpair")) > TrayApplication.UnpairPatienceSeconds, "unpair");
+        }
+
+        public static void SaveServerKeepsAnUnreadableFile()
+        {
+            File.WriteAllText(AppSettings.FilePath, "hook_port=47652\r\nwait_seconds=77\r\nchoice_delivery=1\r\nserver=https://example.com/a\r\n", new UTF8Encoding(false));
+            var deny = new FileSystemAccessRule(ControlChannel.CurrentUser, FileSystemRights.ReadData, AccessControlType.Deny);
+            FileSecurity security = File.GetAccessControl(AppSettings.FilePath);
+            security.AddAccessRule(deny);
+            File.SetAccessControl(AppSettings.FilePath, security);
+            bool saved;
+            try
+            {
+                saved = AppSettings.SaveServer("https://example.com/b");
+            }
+            finally
+            {
+                security = File.GetAccessControl(AppSettings.FilePath);
+                security.RemoveAccessRule(deny);
+                File.SetAccessControl(AppSettings.FilePath, security);
+            }
+            AppSettings after = AppSettings.Load();
+            Expect(!saved && after.WaitSeconds == 77 && after.Server == "https://example.com/a", "an unreadable file is not overwritten with defaults");
+        }
+
+        public static void CommandWindowsAreNotTheUsers()
+        {
+            Expect(!TrayApplication.OpenedByUser(null) && TrayApplication.CommandWindowRefusal(null) != null, "no window");
+            var form = new PairingForm(new AppSettings(), null, new DesktopSessions(Path.Combine(UserDataPaths.Directory, "no-desktop-sessions"), TimeSpan.Zero), new PairRequest());
+            Expect(!TrayApplication.OpenedByUser(form) && TrayApplication.CommandWindowRefusal(form) == null, "a hidden window belongs to commands");
+            form.Opacity = 0;
+            form.ShowInTaskbar = false;
+            form.Show();
+            Expect(TrayApplication.OpenedByUser(form) && Json.String(TrayApplication.CommandWindowRefusal(form), "message").Contains("opened by the user"), "a window on the screen is the user's");
+            form.Dispose();
+            Expect(!TrayApplication.OpenedByUser(form) && Json.String(TrayApplication.CommandWindowRefusal(form), "message").Contains("no pairing window"), "a closed window is no window");
+        }
+
+        public static void UnpairIsRefusedWhileExiting()
+        {
+            object pair = new object();
+            Expect(TrayApplication.CanUnpair(pair, pair, false, false), "a pair can be broken");
+            Expect(!TrayApplication.CanUnpair(null, null, false, false), "no pair");
+            Expect(!TrayApplication.CanUnpair(pair, new object(), false, false), "the pair asked about was replaced while the question was open");
+            Expect(!TrayApplication.CanUnpair(pair, pair, true, false), "already deleting");
+            Expect(!TrayApplication.CanUnpair(pair, pair, false, true), "Pult is exiting");
+        }
+
+        public static void PairCommandFillsTheWindow()
+        {
+            PairRequest request = PairRequest.From(Parse("pair", "--server", "https://example.com/x", "--idle-hours", "0.5", "--folder", "C:\\a"));
+            using (var form = new PairingForm(new AppSettings(), null, new DesktopSessions(Path.Combine(UserDataPaths.Directory, "no-desktop-sessions"), TimeSpan.Zero), request))
+            {
+                Dictionary<string, object> state = form.Describe();
+                Expect((int)state["idle_seconds"] == 1800 && (string)state["server"] == "https://example.com/x", "idle and server reach the window");
+                Expect(((List<string>)state["folders"]).SequenceEqual(new[] { "C:\\a" }), "folders reach the window");
+            }
+        }
+
+        public static void QrAnswerFollowsTheWindow()
+        {
+            var showing = new Dictionary<string, object> { { "state", PairingForm.Showing } };
+            Expect(Json.Bool(TrayApplication.QrAnswer(showing), "ok") && TrayApplication.QrAnswer(showing)["pairing"] == showing, "showing is the QR");
+            var failed = new Dictionary<string, object> { { "state", PairingForm.Failed }, { "problem", "Сервер недоступен" } };
+            Dictionary<string, object> answer = TrayApplication.QrAnswer(failed);
+            Expect(Json.String(answer, "error") == ControlResult.Failed && Json.String(answer, "message") == "Сервер недоступен" && answer["pairing"] == failed, "failed carries the problem");
+            Expect(Json.String(TrayApplication.QrAnswer(new Dictionary<string, object> { { "state", PairingForm.Creating } }), "message").Contains("no QR in 60 s"), "still creating");
+            Expect(Json.String(TrayApplication.QrAnswer(null), "message") == "the pairing window is closed", "closed");
+            Expect(Json.String(TrayApplication.QrAnswer(new Dictionary<string, object> { { "state", PairingForm.Paired } }), "message") == "the pairing window is paired", "paired");
         }
 
         public static void PipeHeldByStrangerIsRefused()

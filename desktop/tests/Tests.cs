@@ -156,6 +156,10 @@ namespace Pult.Tests
             Run("pairing window: state follows the window", PairRequestTests.DescribeFollowsTheWindow);
             Run("pairing window: rejection and failure are states", PairRequestTests.RejectionAndFailureAreStates);
             Run("pairing window: hidden window works and starts once", PairRequestTests.HiddenWindowWorksAndStartsOnce);
+            Run("pairing window: hidden window closes when its QR expires", PairRequestTests.HiddenWindowClosesWhenItsQrExpires);
+            Run("pairing window: hidden window fails when the server ends its claim", PairRequestTests.HiddenWindowFailsWhenTheServerEndsItsClaim);
+            Run("pairing window: visible window reissues when the server ends its claim", PairRequestTests.VisibleWindowReissuesWhenTheServerEndsItsClaim);
+            Run("pairing window: visible window reissues an expiring QR", PairRequestTests.VisibleWindowReissuesAnExpiringQr);
             Run("pairing window: requested folders go to the claim", PairRequestTests.RequestedFoldersGoToTheClaim);
             Run("pairing window: claim not created is logged", PairRequestTests.ClaimNotCreatedIsLogged);
             Run("control: plain commands", ControlTests.PlainCommands);
@@ -175,6 +179,19 @@ namespace Pult.Tests
             Run("control: slow answer times out", ControlTests.SlowAnswerTimesOut);
             Run("control: pipe held by a stranger is refused", ControlTests.PipeHeldByStrangerIsRefused);
             Run("control: status lists open requests and threads", StatusListsOpenRequests);
+            Run("control: server stops on a foreign owner", ControlTests.ServerStopsOnForeignOwner);
+            Run("control: server retries a transient failure", ControlTests.ServerRetriesATransientFailure);
+            Run("control: client refuses a foreign owner", ControlTests.ClientRefusesForeignOwner);
+            Run("control: requests are served in parallel", ControlTests.RequestsAreServedInParallel);
+            Run("control: action after the answer waits for it", ControlTests.AfterReplyWaitsForTheAnswer);
+            Run("control: exit waits for the process", ControlTests.ExitWaitsForTheProcess);
+            Run("control: start leaves a running Pult", ControlTests.StartLeavesARunningPult);
+            Run("control: client waits longer than the server", ControlTests.ClientWaitsLongerThanTheServer);
+            Run("control: unreadable settings are kept", ControlTests.SaveServerKeepsAnUnreadableFile);
+            Run("control: command windows are not the user's", ControlTests.CommandWindowsAreNotTheUsers);
+            Run("control: unpair refused while exiting", ControlTests.UnpairIsRefusedWhileExiting);
+            Run("control: pair command fills the window", ControlTests.PairCommandFillsTheWindow);
+            Run("control: QR answer follows the window", ControlTests.QrAnswerFollowsTheWindow);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

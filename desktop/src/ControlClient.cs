@@ -43,6 +43,11 @@ namespace Pult
 
         public static Dictionary<string, object> Send(string pipeName, IList<string> args, int answerSeconds)
         {
+            return Send(pipeName, args, answerSeconds, ControlChannel.OwnedByCurrentUser);
+        }
+
+        public static Dictionary<string, object> Send(string pipeName, IList<string> args, int answerSeconds, Func<PipeStream, bool> ownedByUser)
+        {
             var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut);
             try
             {
@@ -58,7 +63,7 @@ namespace Pult
                 {
                     return ControlResult.Fail(ControlResult.NotRunning, "Pult does not answer: " + error.Message);
                 }
-                if (!ControlChannel.OwnedByCurrentUser(pipe)) return ControlResult.Fail(ControlResult.Refused, "the control channel belongs to another user");
+                if (!ownedByUser(pipe)) return ControlResult.Fail(ControlResult.Refused, "the control channel belongs to another user");
                 var request = new Dictionary<string, object> { { "args", new List<string>(args) }, { "cwd", Environment.CurrentDirectory } };
                 string answer = null;
                 Exception failure = null;
@@ -90,7 +95,7 @@ namespace Pult
             }
         }
 
-        private static int AnswerSeconds(ControlCommand command)
+        public static int AnswerSeconds(ControlCommand command)
         {
             switch (command.Name)
             {
@@ -138,13 +143,28 @@ namespace Pult
         {
             Dictionary<string, object> result = Send(pipeName, args, DefaultAnswerSeconds);
             if (!Json.Bool(result, "ok")) return result;
-            var clock = Stopwatch.StartNew();
-            while (clock.ElapsedMilliseconds < ExitPatienceMs)
+            object pid = Json.Value(result, "pid");
+            if (!(pid is int)) return result;
+            try
             {
-                Thread.Sleep(StartPollMs);
-                if (Json.String(Send(pipeName, new List<string> { ControlCommand.Status }, DefaultAnswerSeconds), "error") == ControlResult.NotRunning) return result;
+                using (Process pult = Process.GetProcessById((int)pid))
+                {
+                    if (pult.WaitForExit(ExitPatienceMs)) return result;
+                }
             }
-            return ControlResult.Fail(ControlResult.Failed, "Pult accepted exit, but still answers after " + ExitPatienceMs / 1000 + " s");
+            catch (ArgumentException)
+            {
+                return result;
+            }
+            catch (InvalidOperationException)
+            {
+                return result;
+            }
+            catch (System.ComponentModel.Win32Exception error)
+            {
+                return ControlResult.Fail(ControlResult.Failed, "Pult accepted exit, its process is not watched: " + error.Message);
+            }
+            return ControlResult.Fail(ControlResult.Failed, "Pult accepted exit, but its process is still running after " + ExitPatienceMs / 1000 + " s");
         }
 
         private static Dictionary<string, object> SettingsCommand(ControlCommand command)
@@ -160,7 +180,7 @@ namespace Pult
             Dictionary<string, object> result = ControlResult.Ok();
             result["path"] = AppSettings.FilePath;
             result["settings"] = settings.ToMap();
-            result["applies"] = "server: the next pairing window; the rest: after Pult restarts";
+            result["applies"] = "server: the next pairing window; hook_port: hooks use it at once, Pult after a restart, so restart Pult right away (exit, start); the rest: after Pult restarts";
             return result;
         }
 

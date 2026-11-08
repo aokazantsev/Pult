@@ -78,6 +78,80 @@ namespace Pult.Tests
             }
         }
 
+        public static void HiddenWindowFailsWhenTheServerEndsItsClaim()
+        {
+            using (var form = new PairingForm(new AppSettings(), null, Sessions(), new PairRequest()))
+            {
+                GC.KeepAlive(form.Handle);
+                RelayClient client = Pending(form, Offer(form));
+                form.OnEnded(Stranger());
+                Expect((string)form.Describe()["state"] == PairingForm.Showing, "an end of another claim changes nothing");
+                form.OnEnded(client);
+                Dictionary<string, object> state = form.Describe();
+                Expect((string)state["state"] == PairingForm.Failed && state.ContainsKey("problem") && !state.ContainsKey("qr"), "the hidden window reports the ended claim and issues no new QR: " + Json.Write(state));
+            }
+        }
+
+        public static void VisibleWindowReissuesWhenTheServerEndsItsClaim()
+        {
+            var form = new PairingForm(new AppSettings(), null, Sessions(), new PairRequest { Server = "ftp://example.com" });
+            try
+            {
+                form.Opacity = 0;
+                form.ShowInTaskbar = false;
+                form.Show();
+                DateTime until = DateTime.UtcNow.AddSeconds(10);
+                while ((string)form.Describe()["state"] != PairingForm.Failed && DateTime.UtcNow < until)
+                {
+                    Application.DoEvents();
+                    System.Threading.Thread.Sleep(10);
+                }
+                RelayClient client = Pending(form, Offer(form));
+                form.OnEnded(client);
+                Dictionary<string, object> state = form.Describe();
+                Expect((string)state["state"] == PairingForm.Creating && !state.ContainsKey("problem"), "a window on the screen issues a new claim: " + Json.Write(state));
+            }
+            finally
+            {
+                form.Dispose();
+            }
+        }
+
+        public static void HiddenWindowClosesWhenItsQrExpires()
+        {
+            var form = new PairingForm(new AppSettings(), null, Sessions(), new PairRequest());
+            GC.KeepAlive(form.Handle);
+            PairingOffer offer = NewOffer();
+            typeof(PairingForm).GetField("offer", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(form, new PairingOffer(offer.Session, 10));
+            Invoke(form, "Tick");
+            Expect(form.IsDisposed, "a hidden window does not reissue an expiring QR, it closes");
+        }
+
+        public static void VisibleWindowReissuesAnExpiringQr()
+        {
+            var form = new PairingForm(new AppSettings(), null, Sessions(), new PairRequest { Server = "ftp://example.com" });
+            try
+            {
+                form.Opacity = 0;
+                form.ShowInTaskbar = false;
+                form.Show();
+                DateTime until = DateTime.UtcNow.AddSeconds(10);
+                while ((string)form.Describe()["state"] != PairingForm.Failed && DateTime.UtcNow < until)
+                {
+                    Application.DoEvents();
+                    System.Threading.Thread.Sleep(10);
+                }
+                typeof(PairingForm).GetField("offer", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(form, new PairingOffer(NewOffer().Session, 10));
+                Invoke(form, "Tick");
+                Expect(!form.IsDisposed && form.Visible, "a window on the screen stays open");
+                Expect(File.ReadAllLines(AppLog.FilePath).Last().EndsWith("is about to expire, issuing a new QR"), "a window on the screen issues a new QR");
+            }
+            finally
+            {
+                form.Dispose();
+            }
+        }
+
         public static void HiddenWindowWorksAndStartsOnce()
         {
             using (var form = new PairingForm(new AppSettings(), null, Sessions(), new PairRequest { Server = "ftp://example.com" }))
