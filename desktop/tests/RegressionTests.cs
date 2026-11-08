@@ -668,6 +668,117 @@ namespace Pult.Tests
             rig.Broker.Handle(rig.Event("PostToolUse", "cli-3", "D:\\elsewhere", "local_M", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
             Expect(rig.Broker.Hub.All().Count == 2 && rig.Broker.Hub.All().All(t => !t.SessionIds.Contains("cli-3")), "moved out of marked folders: stays on the pc");
             rig.NoProblems();
+            rig.Broker.Stop();
+            Broker restarted = rig.Create(true);
+            List<ThreadState> hosted = restarted.Hub.All().Where(t => t.HostId == "local_M").ToList();
+            Expect(hosted.Count == 1 && hosted[0].Folder == "b", "after a restart only the moved item keeps the host");
+            restarted.Stop();
+        }
+
+        public static void P37RequestAfterLongLineGoesAfterItsContext()
+        {
+            var rig = new Rig(5);
+            string dir = Temp();
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, "longline.jsonl");
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(false)))
+            {
+                writer.Write("{\"type\":\"progress\",\"uuid\":\"big\",\"data\":\"" + new string('x', 2600000) + "\"}\n");
+                writer.Write(Rig.AssistantLine("ctx2", "контекст после длинной строки", DateTime.UtcNow) + "\n");
+            }
+            rig.Start("s-ll", "C:\\work\\demo", null);
+            rig.Hello();
+            var channel = new FakeChannel(HookAck.Taken);
+            Thread thread = rig.Hook(rig.Event("PermissionRequest", "s-ll", "C:\\work\\demo", null, path, "tool_name", "Bash", "tool_input", new Dictionary<string, object> { { "command", "ls" } }), channel);
+            rig.WaitRequest("permission_request");
+            long afterSeq = Convert.ToInt64(rig.Relay.Sent("permission_request")[0]["after_seq"]);
+            Dictionary<string, object> context = rig.Relay.Sent("feed").SelectMany(f => ((List<object>)f["entries"]).Cast<Dictionary<string, object>>()).FirstOrDefault(e => Json.String(e, "text") == "контекст после длинной строки");
+            Expect(context != null && Convert.ToInt64(context["seq"]) == afterSeq, "a line longer than a chunk does not stop reading before the request");
+            rig.Broker.Stop();
+            thread.Join(3000);
+        }
+
+        public static void P38LostSessionStateDropsOldThreadFiles()
+        {
+            var rig = new Rig(5);
+            rig.Start("s-old", "C:\\work\\demo", null);
+            string transcript = Rig.Transcript(Temp(), Rig.UserLine("old-u", "старое", DateTime.UtcNow));
+            rig.Broker.Handle(rig.Event("PostToolUse", "s-old", "C:\\work\\demo", null, transcript), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Stop();
+            string uuids = Path.Combine(rig.State, "state-" + rig.Pair, "uuids.txt");
+            Expect(File.Exists(uuids) && File.ReadAllText(uuids).Contains("old-u"), "uuid of the old thread was saved");
+            File.Delete(Path.Combine(rig.State, "state-" + rig.Pair, "session.json"));
+            Broker second = rig.Create(true);
+            Expect(second.Hub.All().Count == 0, "lost state starts over");
+            Expect(!File.Exists(uuids) || !File.ReadAllText(uuids).Contains("old-u"), "issued uuids of the lost state are dropped");
+            second.Handle(rig.Event("SessionStart", "s-new", "C:\\work\\demo", null, null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            second.Stop();
+            Broker third = rig.Create(true);
+            Expect(third.Hub.All().Count == 1 && third.Hub.All()[0].SessionIds.Contains("s-new"), "old thread files do not come back: " + third.Hub.All().Count);
+            third.Stop();
+        }
+
+        public static void P39MoveSeenThroughResumeStart()
+        {
+            var rig = new Rig(5, "C:\\work\\a", "C:\\work\\b");
+            rig.WriteMeta("local_R", "cli-1", "C:\\work\\a", "Тред", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-1", "C:\\work\\a", "local_R", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-1", "C:\\work\\a", "local_R", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            MoveMeta(rig, "local_R", "cli-2", "cli-1", "D:\\elsewhere");
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-2", "D:\\elsewhere", "local_R", null, "source", "resume"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().All(t => !t.SessionIds.Contains("cli-2")), "resumed in an unmarked folder: stays on the pc");
+            MoveMeta(rig, "local_R", "cli-3", "cli-2", "C:\\work\\b");
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-3", "C:\\work\\b", "local_R", null, "source", "resume"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            ThreadState moved = rig.Broker.Hub.All().FirstOrDefault(t => t.SessionIds.Contains("cli-3"));
+            Expect(moved != null && moved.Folder == "b" && moved.HostId == "local_R", "resumed in another marked folder: a new item with that folder");
+            rig.NoProblems();
+        }
+
+        public static void P40MoveIntoMarkedFolderJoinsSession()
+        {
+            var rig = new Rig(5, "C:\\work\\b");
+            rig.WriteMeta("local_U", "cli-1", "D:\\elsewhere", "Тред", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-1", "D:\\elsewhere", "local_U", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 0, "unmarked folder stays on the pc");
+            MoveMeta(rig, "local_U", "cli-2", "cli-1", "C:\\work\\b");
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-2", "C:\\work\\b", "local_U", null, "source", "resume"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            ThreadState joined = rig.Broker.Hub.All().FirstOrDefault(t => t.SessionIds.Contains("cli-2"));
+            Expect(joined != null && joined.Folder == "b" && joined.HostId == "local_U", "moved into a marked folder: joins the session");
+            rig.NoProblems();
+        }
+
+        public static void P41SyncAfterSessionEndIsQuiet()
+        {
+            var rig = new Rig(5);
+            string transcript = Rig.Transcript(Temp(), Rig.UserLine("q1", "первое", DateTime.UtcNow));
+            rig.Start("s-q", "C:\\work\\demo", null);
+            rig.Broker.Handle(rig.Event("PostToolUse", "s-q", "C:\\work\\demo", null, transcript), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            ThreadState state = rig.Broker.Hub.All()[0];
+            Rig.Append(transcript, Rig.UserLine("q2", "после разрыва", DateTime.UtcNow));
+            rig.Broker.EndSession();
+            int feeds = rig.Relay.Sent("feed").Count;
+            rig.Broker.Hub.Sync(state);
+            Expect(rig.Relay.Sent("feed").Count == feeds, "a thread of an ended session is not read or sent");
+        }
+
+        public static void P42ContinuationWithoutMetadataStays()
+        {
+            var rig = new Rig(5);
+            rig.WriteMeta("local_Z", "cli-1", "C:\\work\\proj", "Тред", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-1", "C:\\work\\proj", "local_Z", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            File.Delete(Path.Combine(rig.Meta, "local_Z.json"));
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-2", "C:\\work\\proj", "local_Z", null, "source", "clear"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 1 && rig.Broker.Hub.All()[0].SessionIds.Contains("cli-2"), "continuation without metadata keeps the item");
+        }
+
+        public static void P43SessionOfAnotherHostDoesNotMoveThread()
+        {
+            var rig = new Rig(5, "C:\\work\\a", "C:\\work\\b");
+            rig.WriteMeta("local_X", "cli-x", "C:\\work\\a", "Икс", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-x", "C:\\work\\a", "local_X", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            MoveMeta(rig, "local_Y", "cli-y", "cli-2", "C:\\work\\b");
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-2", "C:\\work\\a", "local_X", null, "source", "resume"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 1 && rig.Broker.Hub.All()[0].SessionIds.Contains("cli-2"), "metadata of another host do not move the thread");
         }
     }
 }

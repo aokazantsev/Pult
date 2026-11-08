@@ -142,6 +142,13 @@ namespace Pult.Tests
             Run("host owned by another thread stays", RegressionTests.P34HostTakenByAnotherThreadStays);
             Run("request after downtime goes after its context", RegressionTests.P35RequestAfterDowntimeGoesAfterItsContext);
             Run("moved desktop thread follows its folder", RegressionTests.P36MovedDesktopThreadFollowsItsFolder);
+            Run("request after a long line goes after its context", RegressionTests.P37RequestAfterLongLineGoesAfterItsContext);
+            Run("lost session state drops old thread files", RegressionTests.P38LostSessionStateDropsOldThreadFiles);
+            Run("move is seen through a resume start", RegressionTests.P39MoveSeenThroughResumeStart);
+            Run("move into a marked folder joins the session", RegressionTests.P40MoveIntoMarkedFolderJoinsSession);
+            Run("sync after session end is quiet", RegressionTests.P41SyncAfterSessionEndIsQuiet);
+            Run("continuation without metadata stays", RegressionTests.P42ContinuationWithoutMetadataStays);
+            Run("session of another host does not move the thread", RegressionTests.P43SessionOfAnotherHostDoesNotMoveThread);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

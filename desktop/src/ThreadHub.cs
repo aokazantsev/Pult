@@ -85,6 +85,7 @@ namespace Pult
                 {
                     stateLost = true;
                     AppLog.Append("session state of " + pairId + " is missing: threads start over");
+                    DropThreadFiles();
                     return;
                 }
                 foreach (string uuid in StateFiles.ReadLines(Path.Combine(SessionDirectory, "uuids.txt"))) issued.Add(uuid);
@@ -92,6 +93,24 @@ namespace Pult
                 {
                     ThreadState state = ThreadState.FromStorage(StateFiles.Read(file));
                     if (state != null) Register(state);
+                }
+            }
+        }
+
+        private void DropThreadFiles()
+        {
+            if (!Directory.Exists(SessionDirectory)) return;
+            foreach (string file in Directory.GetFiles(SessionDirectory, "thread-*.json").Concat(new[] { Path.Combine(SessionDirectory, "uuids.txt") }))
+            {
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
                 }
             }
         }
@@ -164,7 +183,7 @@ namespace Pult
                     }
                     else
                     {
-                        string moved = MovedFolder(host, state);
+                        string moved = MovedFolder(host, hookEvent.SessionId, state);
                         if (moved == null)
                         {
                             bySession[hookEvent.SessionId] = state;
@@ -181,7 +200,7 @@ namespace Pult
                         Persist(state);
                     }
                 }
-                DesktopMeta meta = sessions == null ? null : sessions.Find(host, hookEvent.SessionId);
+                DesktopMeta meta = host == null ? (sessions == null ? null : sessions.Find(null, hookEvent.SessionId)) : HostMeta(host, hookEvent.SessionId);
                 if (host != null && meta != null && meta.LocalId == host && !string.IsNullOrEmpty(meta.CliSessionId) && !ContinuesHost(host, hookEvent.SessionId))
                 {
                     host = null;
@@ -450,15 +469,16 @@ namespace Pult
 
         private bool SyncLocked(ThreadState state, ref long budget)
         {
-            if (state.Cursors.Count == 0) return false;
+            if (state.Cursors.Count == 0 || pair == null) return false;
             var context = new AdapterContext { PairedAtUtc = pairedAtUtc, Issued = issued, CallIds = state.CallIds, PhoneTexts = state.PhoneTexts, PeerResolver = ResolvePeer };
             foreach (TranscriptCursor cursor in state.Cursors)
             {
-                List<string> lines;
-                while (budget > 0 && (lines = cursor.ReadNew()).Count > 0)
+                while (budget > 0)
                 {
+                    List<string> lines = cursor.ReadNew();
+                    if (cursor.LastReadBytes == 0) break;
                     budget -= cursor.LastReadBytes;
-                    TranscriptAdapter.Parse(lines, context);
+                    if (lines.Count > 0) TranscriptAdapter.Parse(lines, context);
                 }
             }
             if (context.CustomTitle != null) state.TranscriptTitle = context.CustomTitle;
@@ -599,9 +619,16 @@ namespace Pult
             AppLog.Append("thread " + victim.Id + " dropped: more than " + MaxThreads + " threads");
         }
 
-        private string MovedFolder(string host, ThreadState state)
+        private DesktopMeta HostMeta(string host, string sessionId)
         {
-            DesktopMeta meta = sessions == null ? null : sessions.ByLocalId(host);
+            if (sessions == null) return null;
+            DesktopMeta current = sessions.Find(null, sessionId);
+            return current != null && current.LocalId == host ? current : sessions.ByLocalId(host);
+        }
+
+        private string MovedFolder(string host, string sessionId, ThreadState state)
+        {
+            DesktopMeta meta = HostMeta(host, sessionId);
             string origin = meta == null ? null : (meta.OriginCwd ?? meta.Cwd);
             if (origin == null) return null;
             string marked = FolderMembership.MarkedFolderFor(origin, folders);
