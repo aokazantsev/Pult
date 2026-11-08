@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -91,7 +90,7 @@ namespace Pult
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Выход", null, OnExit);
             menu.Opening += (sender, e) => Refresh();
-            icon = PaintIcon();
+            icon = LoadTrayIcon();
             trayIcon.Icon = icon;
             trayIcon.ContextMenuStrip = menu;
             trayIcon.Visible = true;
@@ -568,36 +567,26 @@ namespace Pult
         [DllImport("user32.dll")]
         private static extern bool DestroyIcon(IntPtr handle);
 
-        private static Icon PaintIcon()
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        private static extern uint ExtractIconEx(string file, int index, IntPtr[] large, IntPtr[] small, uint count);
+
+        private static Icon LoadTrayIcon()
         {
-            using (var bitmap = new Bitmap(32, 32))
+            var small = new IntPtr[1];
+            if (ExtractIconEx(Application.ExecutablePath, 0, null, small, 1) == 0 || small[0] == IntPtr.Zero)
             {
-                using (Graphics g = Graphics.FromImage(bitmap))
+                return (Icon)SystemIcons.Application.Clone();
+            }
+            try
+            {
+                using (Icon fromHandle = Icon.FromHandle(small[0]))
                 {
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
-                    using (var back = new SolidBrush(Color.FromArgb(47, 111, 235)))
-                    using (var front = new SolidBrush(Color.White))
-                    {
-                        g.FillEllipse(back, 1, 1, 30, 30);
-                        g.FillRectangle(front, 10, 7, 12, 18);
-                        g.FillEllipse(back, 12, 10, 3, 3);
-                        g.FillEllipse(back, 17, 10, 3, 3);
-                        g.FillEllipse(back, 12, 16, 3, 3);
-                        g.FillEllipse(back, 17, 16, 3, 3);
-                    }
+                    return (Icon)fromHandle.Clone();
                 }
-                IntPtr handle = bitmap.GetHicon();
-                try
-                {
-                    using (Icon fromHandle = Icon.FromHandle(handle))
-                    {
-                        return (Icon)fromHandle.Clone();
-                    }
-                }
-                finally
-                {
-                    DestroyIcon(handle);
-                }
+            }
+            finally
+            {
+                DestroyIcon(small[0]);
             }
         }
     }
