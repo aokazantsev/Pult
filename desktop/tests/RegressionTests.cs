@@ -780,5 +780,21 @@ namespace Pult.Tests
             rig.Broker.Handle(rig.Event("SessionStart", "cli-2", "C:\\work\\a", "local_X", null, "source", "resume"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
             Expect(rig.Broker.Hub.All().Count == 1 && rig.Broker.Hub.All()[0].SessionIds.Contains("cli-2"), "metadata of another host do not move the thread");
         }
+
+        public static void P44PhoneTextsAndCallIdsSurviveRestart()
+        {
+            var rig = new Rig(5);
+            rig.Start("s-pt2", "C:\\work\\demo", null);
+            ThreadState state = rig.Broker.Hub.All()[0];
+            rig.Broker.Hub.NotePhoneText(state, "ответ с телефона", "r9");
+            state.CallIds["toolu_1"] = "c1-abc";
+            rig.Broker.Hub.Persist(state);
+            rig.Broker.Stop();
+            Broker restarted = rig.Create(true);
+            ThreadState loaded = restarted.Hub.Find(state.Id);
+            Expect(loaded.PhoneTexts.Count == 1 && loaded.PhoneTexts[0].RequestId == "r9", "phone texts survive a restart");
+            Expect(loaded.CallIds.ContainsKey("toolu_1") && loaded.CallIds["toolu_1"] == "c1-abc", "call ids survive a restart");
+            restarted.Stop();
+        }
     }
 }

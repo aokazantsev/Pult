@@ -149,6 +149,7 @@ namespace Pult.Tests
             Run("sync after session end is quiet", RegressionTests.P41SyncAfterSessionEndIsQuiet);
             Run("continuation without metadata stays", RegressionTests.P42ContinuationWithoutMetadataStays);
             Run("session of another host does not move the thread", RegressionTests.P43SessionOfAnotherHostDoesNotMoveThread);
+            Run("phone texts and call ids survive a restart", RegressionTests.P44PhoneTextsAndCallIdsSurviveRestart);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

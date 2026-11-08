@@ -167,10 +167,12 @@ namespace Pult
                 ThreadState state;
                 if (bySession.TryGetValue(hookEvent.SessionId, out state))
                 {
-                    if (host != null && state.HostId == null && !byHost.ContainsKey(host) && ContinuesHost(host, hookEvent.SessionId))
+                    if (host != null && state.HostId == null && !byHost.ContainsKey(host) && sessions != null && sessions.Owns(host, hookEvent.SessionId))
                     {
                         state.HostId = host;
+                        state.DesktopApp = true;
                         byHost[host] = state;
+                        Persist(state);
                     }
                     return state;
                 }
@@ -201,7 +203,7 @@ namespace Pult
                     }
                 }
                 DesktopMeta meta = host == null ? (sessions == null ? null : sessions.Find(null, hookEvent.SessionId)) : HostMeta(host, hookEvent.SessionId);
-                if (host != null && meta != null && meta.LocalId == host && !string.IsNullOrEmpty(meta.CliSessionId) && !ContinuesHost(host, hookEvent.SessionId))
+                if (host != null && meta != null && !string.IsNullOrEmpty(meta.CliSessionId) && !ContinuesHost(host, hookEvent.SessionId))
                 {
                     host = null;
                     meta = sessions.Find(null, hookEvent.SessionId);
@@ -276,8 +278,6 @@ namespace Pult
             {
                 long budget = RequestReadBytes;
                 SyncLocked(state, ref budget);
-                state.Title = state.PickTitle();
-                Persist(state);
                 PushThread(state);
             }
         }
@@ -291,11 +291,7 @@ namespace Pult
                 {
                     if (budget <= 0) break;
                     if (state.Cursors.Count == 0) continue;
-                    bool changed = SyncLocked(state, ref budget);
-                    if (!changed) continue;
-                    state.Title = state.PickTitle();
-                    Persist(state);
-                    PushThread(state);
+                    if (SyncLocked(state, ref budget)) PushThread(state);
                 }
             }
         }
@@ -340,6 +336,7 @@ namespace Pult
             {
                 state.PhoneTexts.Add(new PhoneText { Text = text, RequestId = requestId });
                 while (state.PhoneTexts.Count > PhoneTextLimit) state.PhoneTexts.RemoveAt(0);
+                Persist(state);
             }
         }
 
@@ -483,8 +480,14 @@ namespace Pult
             }
             if (context.CustomTitle != null) state.TranscriptTitle = context.CustomTitle;
             if (state.FirstUser == null && context.FirstUserText != null) state.FirstUser = context.FirstUserText;
+            state.Title = state.PickTitle();
             if (context.NewUuids.Count > 0) StateFiles.Append(Path.Combine(SessionDirectory, "uuids.txt"), context.NewUuids);
-            if (context.Entries.Count == 0) return context.CustomTitle != null;
+            if (context.Entries.Count == 0)
+            {
+                if (context.CustomTitle == null) return false;
+                Persist(state);
+                return true;
+            }
             AppendEntries(state, context.Entries);
             return true;
         }
@@ -586,7 +589,7 @@ namespace Pult
         private bool MakeRoom()
         {
             if (byId.Count < MaxThreads) return true;
-            ThreadState victim = byId.Values.Where(t => t.Status == "ended").OrderBy(t => t.LastEventTicks).FirstOrDefault();
+            ThreadState victim = byId.Values.Where(t => t.Status == "ended" && !HasOpenRequest(t.Id)).OrderBy(t => t.LastEventTicks).FirstOrDefault();
             if (victim == null) victim = byId.Values.Where(t => !HasOpenRequest(t.Id)).OrderBy(t => t.LastEventTicks).FirstOrDefault();
             if (victim == null) return false;
             Remove(victim);

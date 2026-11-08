@@ -171,6 +171,14 @@ namespace Pult
             catch (UnauthorizedAccessException)
             {
             }
+            catch (ArgumentException)
+            {
+                return lines;
+            }
+            catch (NotSupportedException)
+            {
+                return lines;
+            }
             byte[] chunk;
             try
             {
@@ -203,6 +211,14 @@ namespace Pult
                 return lines;
             }
             catch (UnauthorizedAccessException)
+            {
+                return lines;
+            }
+            catch (ArgumentException)
+            {
+                return lines;
+            }
+            catch (NotSupportedException)
             {
                 return lines;
             }

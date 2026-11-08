@@ -22,7 +22,7 @@ namespace Pult
 
     internal sealed class DesktopSessions
     {
-        public static readonly TimeSpan DefaultRescanInterval = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan DefaultRescanInterval = TimeSpan.FromSeconds(1);
 
         private readonly string root;
         private readonly TimeSpan rescanInterval;

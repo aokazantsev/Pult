@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Pult
 {
@@ -67,7 +68,9 @@ namespace Pult
                 { "desktop_app", DesktopApp },
                 { "sessions", new List<object>(SessionIds) },
                 { "transcripts", transcripts },
-                { "ring", new List<object>(Ring) }
+                { "ring", new List<object>(Ring) },
+                { "call_ids", new Dictionary<string, object>(CallIds.ToDictionary(p => p.Key, p => (object)p.Value)) },
+                { "phone_texts", PhoneTexts.Select(p => (object)new Dictionary<string, object> { { "text", p.Text }, { "request_id", p.RequestId } }).ToList() }
             };
             Put(map, "error", ErrorCode);
             Put(map, "parent", ParentId);
@@ -125,6 +128,22 @@ namespace Pult
             {
                 var entry = item as Dictionary<string, object>;
                 if (entry != null) state.Ring.Add(entry);
+            }
+            Dictionary<string, object> calls = Json.Object(map, "call_ids");
+            if (calls != null)
+            {
+                foreach (KeyValuePair<string, object> pair in calls)
+                {
+                    var value = pair.Value as string;
+                    if (value != null) state.CallIds[pair.Key] = value;
+                }
+            }
+            foreach (object item in List(Json.Value(map, "phone_texts")))
+            {
+                var phone = item as Dictionary<string, object>;
+                string text = Json.String(phone, "text");
+                string requestId = Json.String(phone, "request_id");
+                if (text != null && requestId != null) state.PhoneTexts.Add(new PhoneText { Text = text, RequestId = requestId });
             }
             return state;
         }

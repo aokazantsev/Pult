@@ -31,6 +31,7 @@ namespace Pult
         private readonly Dictionary<string, string> closedOutcomes = new Dictionary<string, string>();
         private readonly Queue<string> closedOrder = new Queue<string>();
         private readonly List<Dictionary<string, object>> recentOutcomes = new List<Dictionary<string, object>>();
+        private const int StopStreakLimit = 1000;
         private readonly Dictionary<string, int> stopStreaks = new Dictionary<string, int>();
         private readonly Dictionary<string, long> helloFeeds = new Dictionary<string, long>();
         private readonly List<string> helloCapabilities = new List<string>();
@@ -90,7 +91,7 @@ namespace Pult
             get { return new DateTime(Interlocked.Read(ref lastHookTicks), DateTimeKind.Utc); }
         }
 
-        public void ResetIdle()
+        private void ResetIdle()
         {
             Interlocked.Exchange(ref lastHookTicks, DateTime.UtcNow.Ticks);
         }
@@ -389,6 +390,7 @@ namespace Pult
             int streak;
             lock (gate)
             {
+                if (stopStreaks.Count >= StopStreakLimit && !stopStreaks.ContainsKey(hookEvent.SessionId)) stopStreaks.Clear();
                 stopStreaks.TryGetValue(hookEvent.SessionId, out streak);
                 streak = hookEvent.StopHookActive ? streak + 1 : 0;
                 stopStreaks[hookEvent.SessionId] = streak;
