@@ -7,6 +7,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import java.util.concurrent.TimeUnit
 import ru.aokazantsev.pult.access.AndroidDeviceAuthenticator
 import ru.aokazantsev.pult.access.AndroidElapsedClock
+import ru.aokazantsev.pult.access.DebugLockOptionalAuthenticator
 import ru.aokazantsev.pult.crypto.AndroidDeviceKeyStore
 import ru.aokazantsev.pult.crypto.JcaCrypto
 import ru.aokazantsev.pult.pairing.SharedPreferencesPairStore
@@ -26,7 +27,9 @@ fun createAndroidAppGraph(context: Context, appInfo: AppInfo): AppGraph =
         deviceKeyStore = AndroidDeviceKeyStore(),
         crypto = JcaCrypto(),
         clock = AndroidElapsedClock(),
-        authenticator = AndroidDeviceAuthenticator(context),
+        authenticator = AndroidDeviceAuthenticator(context).let { device ->
+            if (appInfo.isDebug) DebugLockOptionalAuthenticator(device) else device
+        },
     )
 
 private const val CONNECT_TIMEOUT_SECONDS = 10L

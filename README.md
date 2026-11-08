@@ -31,7 +31,8 @@
   `%LOCALAPPDATA%\Pult` (`log.txt`, `settings.txt`, порт приёма хуков — `hook_port`, по умолчанию 47652).
 - **mobile** (Android, JDK 17 и Android SDK, путь к SDK — `sdk.dir` в `mobile\local.properties`, слеши прямые): из папки
   `mobile` — `./gradlew assembleStandardDebug`, APK — `app/build/outputs/apk/standard/debug/app-standard-debug.apk`; пакет
-  отладочной сборки — `ru.aokazantsev.pult.debug`. Единственный флейвор `standard` нужен варианту `standardDebug`: так его
+  отладочной сборки — `ru.aokazantsev.pult.debug`. Отладочная сборка работает и на телефоне без блокировки экрана: вход
+  без запроса биометрии или PIN; с блокировкой вход обычный. Единственный флейвор `standard` нужен варианту `standardDebug`: так его
   принимает `slots.py apk --variant standardDebug` (кладёт APK в папку артефактов проекта).
 
 ## Документы
