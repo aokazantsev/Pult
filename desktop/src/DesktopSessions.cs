@@ -67,6 +67,18 @@ namespace Pult
             }
         }
 
+        public bool Owns(string localId, string cliSessionId)
+        {
+            lock (gate)
+            {
+                DesktopMeta found;
+                if (byCli.TryGetValue(cliSessionId, out found) && found.LocalId == localId) return true;
+                if (DateTime.UtcNow - scannedAt < rescanInterval) return false;
+                Scan();
+                return byCli.TryGetValue(cliSessionId, out found) && found.LocalId == localId;
+            }
+        }
+
         public void Warm()
         {
             lock (gate) Scan();

@@ -427,5 +427,45 @@ namespace Pult.Tests
             warm.Join();
             Expect(errors.Count == 0, "warm in parallel with find does not throw");
         }
+
+        public static void P25ChildClaudeInsideDesktopThreadIsSeparate()
+        {
+            var rig = new Rig(5);
+            rig.WriteMeta("local_H", "cli-1", "C:\\work\\proj", "Родитель", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-1", "C:\\work\\proj", "local_H", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            string parent = Json.String(rig.Relay.Sent("thread")[0], "thread");
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-child", "C:\\work\\proj", "local_H", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("SessionEnd", "cli-child", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 2, "child agent session is a separate item: " + rig.Broker.Hub.All().Count);
+            ThreadState parentState = rig.Broker.Hub.Find(parent);
+            Expect(parentState.Status != "ended" && !parentState.SessionIds.Contains("cli-child"), "child end does not end the desktop thread");
+            ThreadState child = rig.Broker.Hub.All().First(t => t.Id != parent);
+            Expect(child.HostId == null && !child.DesktopApp, "child is a cli thread");
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-1", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.Find(parent).Status == "working", "desktop thread keeps its host after the child");
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-other", "D:\\elsewhere", "local_H", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 2, "child in an unmarked folder stays on the pc");
+            rig.NoProblems();
+        }
+
+        public static void P26DesktopThreadSessionChangeKeepsItem()
+        {
+            var rig = new Rig(5);
+            rig.WriteMeta("local_H", "cli-1", "C:\\work\\proj", "Тред", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-1", "C:\\work\\proj", "local_H", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            string original = Json.String(rig.Relay.Sent("thread")[0], "thread");
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-2", "C:\\work\\proj", "local_H", null, "source", "clear"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-2", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 1 && rig.Broker.Hub.Find(original).SessionIds.Contains("cli-2"), "clear keeps the item");
+            File.WriteAllText(Path.Combine(rig.Meta, "local_H.json"), Json.Write(new Dictionary<string, object>
+            {
+                { "sessionId", "local_H" }, { "cliSessionId", "cli-3" }, { "cwd", "C:\\work\\proj" }, { "originCwd", "C:\\work\\proj" }, { "title", "Тред" },
+                { "priorCliSessionIds", new object[] { "cli-1", "cli-2" } }
+            }), new UTF8Encoding(false));
+            File.SetLastWriteTimeUtc(Path.Combine(rig.Meta, "local_H.json"), DateTime.UtcNow.AddSeconds(5));
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-3", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 1 && rig.Broker.Hub.Find(original).SessionIds.Contains("cli-3"), "session confirmed by desktop metadata keeps the item without its start");
+            rig.NoProblems();
+        }
     }
 }

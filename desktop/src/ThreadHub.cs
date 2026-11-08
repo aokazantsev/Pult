@@ -24,6 +24,7 @@ namespace Pult
         private readonly HashSet<string> negative = new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> issued = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, string> startCwds = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly HashSet<string> continued = new HashSet<string>(StringComparer.Ordinal);
         private bool active;
         private string pair;
         private DateTime pairedAtUtc;
@@ -107,11 +108,18 @@ namespace Pult
 
         public void RememberStart(HookEvent hookEvent)
         {
-            if (hookEvent.Name != "SessionStart" || hookEvent.Source != "startup" || hookEvent.SessionId.Length == 0 || string.IsNullOrEmpty(hookEvent.Cwd)) return;
+            if (hookEvent.Name != "SessionStart" || hookEvent.SessionId.Length == 0) return;
             lock (gate)
             {
-                if (startCwds.Count >= StartCwdLimit) startCwds.Clear();
-                startCwds[hookEvent.SessionId] = hookEvent.Cwd;
+                if (hookEvent.Source == "startup")
+                {
+                    if (string.IsNullOrEmpty(hookEvent.Cwd)) return;
+                    if (startCwds.Count >= StartCwdLimit) startCwds.Clear();
+                    startCwds[hookEvent.SessionId] = hookEvent.Cwd;
+                    return;
+                }
+                if (continued.Count >= StartCwdLimit) continued.Clear();
+                continued.Add(hookEvent.SessionId);
             }
         }
 
@@ -135,17 +143,10 @@ namespace Pult
             {
                 if (!active || hookEvent.SessionId.Length == 0) return null;
                 string host = hookEvent.HostSessionId;
-                ThreadState state = null;
-                if (host != null) byHost.TryGetValue(host, out state);
-                if (state == null) bySession.TryGetValue(hookEvent.SessionId, out state);
-                if (state != null)
+                ThreadState state;
+                if (bySession.TryGetValue(hookEvent.SessionId, out state))
                 {
-                    if (!bySession.ContainsKey(hookEvent.SessionId))
-                    {
-                        bySession[hookEvent.SessionId] = state;
-                        state.SessionIds.Add(hookEvent.SessionId);
-                    }
-                    if (host != null && state.HostId == null)
+                    if (host != null && state.HostId == null && !byHost.ContainsKey(host) && ContinuesHost(host, hookEvent.SessionId))
                     {
                         state.HostId = host;
                         byHost[host] = state;
@@ -153,6 +154,17 @@ namespace Pult
                     return state;
                 }
                 if (negative.Contains(hookEvent.SessionId)) return null;
+                if (host != null && byHost.TryGetValue(host, out state))
+                {
+                    if (ContinuesHost(host, hookEvent.SessionId))
+                    {
+                        bySession[hookEvent.SessionId] = state;
+                        state.SessionIds.Add(hookEvent.SessionId);
+                        return state;
+                    }
+                    AppLog.Append("session " + hookEvent.SessionId + " runs inside desktop thread " + host + ": separate thread");
+                    host = null;
+                }
                 DesktopMeta meta = sessions == null ? null : sessions.Find(host, hookEvent.SessionId);
                 string marked = ResolveFolder(hookEvent, meta);
                 if (marked == null)
@@ -553,6 +565,11 @@ namespace Pult
             {
             }
             AppLog.Append("thread " + victim.Id + " dropped: more than " + MaxThreads + " threads");
+        }
+
+        private bool ContinuesHost(string host, string sessionId)
+        {
+            return continued.Contains(sessionId) || (sessions != null && sessions.Owns(host, sessionId));
         }
 
         private string ResolveFolder(HookEvent hookEvent, DesktopMeta meta)

@@ -130,6 +130,8 @@ namespace Pult.Tests
             Run("deleted desktop meta leaves the index", RegressionTests.P22DesktopSessionsDropsDeletedFile);
             Run("locked and partial desktop meta are retried", RegressionTests.P23DesktopSessionsRetriesLockedAndPartialFile);
             Run("warm scan indexes desktop meta", RegressionTests.P24DesktopSessionsWarmIndexesBeforeFind);
+            Run("child agent inside a desktop thread is separate", RegressionTests.P25ChildClaudeInsideDesktopThreadIsSeparate);
+            Run("desktop thread session change keeps the item", RegressionTests.P26DesktopThreadSessionChangeKeepsItem);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try
