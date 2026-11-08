@@ -56,7 +56,10 @@ fun ThreadScreen(threadId: String, viewModel: ThreadViewModel, onBack: () -> Uni
             )
         },
     ) { padding ->
-        if (row == null && !content.snapshotApplied) {
+        val ended = sessionEndText(state.connection)
+        if (ended != null) {
+            PultError(message = ended, actionText = "К списку", onAction = onBack, modifier = Modifier.padding(padding))
+        } else if (row == null && !content.snapshotApplied) {
             PultLoading(modifier = Modifier.padding(padding))
         } else if (row == null) {
             PultError(message = "Треда больше нет в сессии", actionText = "К списку", onAction = onBack, modifier = Modifier.padding(padding))
