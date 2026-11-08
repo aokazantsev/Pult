@@ -144,7 +144,7 @@ namespace Pult.Tests
                 typeof(PairingForm).GetField("offer", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(form, new PairingOffer(NewOffer().Session, 10));
                 Invoke(form, "Tick");
                 Expect(!form.IsDisposed && form.Visible, "a window on the screen stays open");
-                Expect(File.ReadAllLines(AppLog.FilePath).Last().EndsWith("is about to expire, issuing a new QR"), "a window on the screen issues a new QR");
+                Expect((string)form.Describe()["state"] == PairingForm.Creating, "a window on the screen issues a new claim");
             }
             finally
             {

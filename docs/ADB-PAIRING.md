@@ -51,12 +51,13 @@ Claude. Работает только с отладочной сборкой п�
    ```
    Успех: окно в состоянии `paired` с тем же `pair`, что в logcat, в logcat `paired: hello from the PC received`; дальше
    `$X status` — `relay.paired: true`, `relay.phone_on_screen: true`. Отказ — строка `failed: …` в logcat (причина та же,
-   что показал бы экран сканера) или `no result in 150 s`; `no QR: …` — extra не передан или не base64url.
+   что показал бы экран сканера) или `no result in 150 s`; `no QR: …` — extra не передан или не base64url; окно в
+   состоянии `failed` — заявку закрыл сервер до сопряжения, шаг 4 заново.
    Последняя строка `keys sent, waiting for hello` — приложение не на экране (экран уснул): разбудить по шагу 3 в
    пределах 120 с, `hello` дойдёт сам.
 
 6. **Окно сопряжения на ПК закрыть, экран — как был, устройство отпустить** (и после отказа шагов 4–5: скрытое окно
-   иначе держит заявку до срока QR, 10 минут):
+   иначе держит заявку до срока QR, около 9 мин 40 с):
    ```bash
    P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/claude/hooks/slots.py device --device redmi --"; X=D:/dev/pets/windows/Pult/desktop/Pult.exe
    $X close-pairing

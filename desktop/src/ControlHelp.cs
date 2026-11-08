@@ -26,7 +26,7 @@ namespace Pult
             foreach (string[] command in Commands) list.Add(new Dictionary<string, object> { { "usage", "Pult.exe " + command[0] }, { "does", command[1] } });
             Dictionary<string, object> result = ControlResult.Ok();
             result["commands"] = list;
-            result["exit_codes"] = new Dictionary<string, object> { { "0", "done" }, { "1", "failed" }, { "2", "usage" }, { "3", "Pult is not running" } };
+            result["exit_codes"] = new Dictionary<string, object> { { "0", "done" }, { "1", "failed or refused" }, { "2", "usage" }, { "3", "Pult is not running" } };
             return result;
         }
     }

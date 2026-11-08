@@ -181,6 +181,8 @@ namespace Pult.Tests
             Run("control: status lists open requests and threads", StatusListsOpenRequests);
             Run("control: server stops on a foreign owner", ControlTests.ServerStopsOnForeignOwner);
             Run("control: server retries a transient failure", ControlTests.ServerRetriesATransientFailure);
+            Run("control: server retries a failed first instance", ControlTests.ServerRetriesAFailedFirstInstance);
+            Run("control: server stops retrying on a foreign owner", ControlTests.ServerStopsRetryingOnForeignOwner);
             Run("control: client refuses a foreign owner", ControlTests.ClientRefusesForeignOwner);
             Run("control: requests are served in parallel", ControlTests.RequestsAreServedInParallel);
             Run("control: action after the answer waits for it", ControlTests.AfterReplyWaitsForTheAnswer);

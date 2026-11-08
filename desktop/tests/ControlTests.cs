@@ -291,6 +291,46 @@ namespace Pult.Tests
             }
         }
 
+        public static void ServerRetriesAFailedFirstInstance()
+        {
+            string name = TestPipe();
+            using (var server = new ControlServer(name, command => ControlResult.Ok()))
+            {
+                int creations = 0;
+                server.CreateInstance = () =>
+                {
+                    if (++creations <= 3) throw new IOException("busy");
+                    return server.Create();
+                };
+                Expect(server.Start(), "a transient failure of the first instance is retried, not given up");
+                Thread.Sleep(3500);
+                Expect(Json.Bool(ControlClient.Send(name, new[] { "status" }, 10), "ok"), "the channel comes up after the retry");
+            }
+        }
+
+        public static void ServerStopsRetryingOnForeignOwner()
+        {
+            string name = TestPipe();
+            int checks = 0;
+            using (var server = new ControlServer(name, command => ControlResult.Ok(), pipe =>
+            {
+                checks++;
+                return false;
+            }))
+            {
+                int creations = 0;
+                server.CreateInstance = () =>
+                {
+                    if (++creations == 1) throw new IOException("busy");
+                    return server.Create();
+                };
+                Expect(server.Start(), "a transient failure is retried");
+                Thread.Sleep(3500);
+                Expect(checks == 1, "a foreign owner met while retrying stops the retries: " + checks);
+                Expect(ControlResult.ExitCode(ControlClient.Send(name, new[] { "status" }, 10)) == ControlResult.ExitNotRunning, "the channel is down");
+            }
+        }
+
         public static void ClientRefusesForeignOwner()
         {
             string name = TestPipe();

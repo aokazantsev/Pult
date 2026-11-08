@@ -32,11 +32,27 @@ namespace Pult
         {
             bool foreign;
             NamedPipeServerStream first = CreateOwned(out foreign, true);
-            if (first == null) return false;
+            if (foreign) return false;
             lock (gate) waiting = first;
-            new Thread(Listen) { IsBackground = true, Name = "control" }.Start();
-            AppLog.Append("control channel ready");
+            new Thread(first == null ? (ThreadStart)RetryThenListen : Listen) { IsBackground = true, Name = "control" }.Start();
+            AppLog.Append(first == null ? "control channel: retrying every second" : "control channel ready");
             return true;
+        }
+
+        private void RetryThenListen()
+        {
+            bool foreign = false;
+            NamedPipeServerStream next = null;
+            while (next == null && !foreign && !stopped)
+            {
+                Thread.Sleep(1000);
+                if (stopped) return;
+                next = CreateOwned(out foreign, false);
+                Keep(ref next);
+            }
+            if (next == null) return;
+            AppLog.Append("control channel ready");
+            Listen();
         }
 
         public void Dispose()
@@ -118,6 +134,7 @@ namespace Pult
                 while (next == null && !foreign && !stopped)
                 {
                     Thread.Sleep(1000);
+                    if (stopped) return;
                     next = CreateOwned(out foreign, false);
                     Keep(ref next);
                 }
@@ -195,7 +212,7 @@ namespace Pult
                 command = ControlCommand.Parse(args, Json.String(request, "cwd"), out problem);
                 if (command == null) return ControlResult.Fail(ControlResult.Usage, problem);
                 if (command.IsLocal) return ControlResult.Fail(ControlResult.Usage, command.Name + " runs without the running Pult");
-                AppLog.Append("control: " + command.Name);
+                if (command.Name != ControlCommand.Status && command.Name != ControlCommand.Pairing) AppLog.Append("control: " + command.Name);
                 return handler(command);
             }
             catch (Exception error)

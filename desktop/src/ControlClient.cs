@@ -63,6 +63,10 @@ namespace Pult
                 {
                     return ControlResult.Fail(ControlResult.NotRunning, "Pult does not answer: " + error.Message);
                 }
+                catch (UnauthorizedAccessException)
+                {
+                    return ControlResult.Fail(ControlResult.Refused, "the control channel denies access: it belongs to another user or to an elevated Pult");
+                }
                 if (!ownedByUser(pipe)) return ControlResult.Fail(ControlResult.Refused, "the control channel belongs to another user");
                 var request = new Dictionary<string, object> { { "args", new List<string>(args) }, { "cwd", Environment.CurrentDirectory } };
                 string answer = null;

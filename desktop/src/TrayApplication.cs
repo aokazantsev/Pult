@@ -513,7 +513,7 @@ namespace Pult
 
         private Dictionary<string, object> UnpairAndWait()
         {
-            Dictionary<string, object> refusal = OnUi(() => Unpair(active) ? null : ControlResult.Fail(ControlResult.Refused, unpairing ? "the pair is being deleted already" : "no pair to break"));
+            Dictionary<string, object> refusal = OnUi(() => Unpair(active) ? null : ControlResult.Fail(ControlResult.Refused, exiting ? "Pult is exiting" : unpairing ? "the pair is being deleted already" : "no pair to break"));
             if (refusal != null) return refusal;
             var clock = Stopwatch.StartNew();
             while (OnUi(() => unpairing))
