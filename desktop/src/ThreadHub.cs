@@ -12,7 +12,8 @@ namespace Pult
         private const int NegativeLimit = 1000;
         private const int StartCwdLimit = 2000;
         private const int PhoneTextLimit = 20;
-        private const int ChunksPerSync = 4;
+        private const long EventReadBytes = TranscriptCursor.ChunkBytes;
+        private const long TickReadBytes = 2 * TranscriptCursor.ChunkBytes;
 
         private readonly object gate;
         private readonly IRelay relay;
@@ -162,10 +163,15 @@ namespace Pult
                         state.SessionIds.Add(hookEvent.SessionId);
                         return state;
                     }
-                    AppLog.Append("session " + hookEvent.SessionId + " runs inside desktop thread " + host + ": separate thread");
                     host = null;
                 }
                 DesktopMeta meta = sessions == null ? null : sessions.Find(host, hookEvent.SessionId);
+                if (host != null && meta != null && meta.LocalId == host && !string.IsNullOrEmpty(meta.CliSessionId) && !ContinuesHost(host, hookEvent.SessionId))
+                {
+                    host = null;
+                    meta = sessions.Find(null, hookEvent.SessionId);
+                }
+                if (hookEvent.HostSessionId != null && host == null) AppLog.Append("session " + hookEvent.SessionId + " runs inside desktop thread " + hookEvent.HostSessionId + ": separate thread");
                 string marked = ResolveFolder(hookEvent, meta);
                 if (marked == null)
                 {
@@ -201,9 +207,9 @@ namespace Pult
         {
             lock (gate)
             {
+                string before = Json.Write(state.ToStorage().Where(p => p.Key != "ring" && p.Key != "last_event" && p.Key != "next_seq").ToDictionary(p => p.Key, p => p.Value));
                 if (!string.IsNullOrEmpty(hookEvent.SessionTitle)) state.EventTitle = hookEvent.SessionTitle;
                 state.LastEventTicks = DateTime.UtcNow.Ticks;
-                string before = Json.Write(state.ToStorage().Where(p => p.Key != "ring" && p.Key != "last_event" && p.Key != "next_seq").ToDictionary(p => p.Key, p => p.Value));
                 string transcript = hookEvent.TranscriptPath;
                 if (!string.IsNullOrEmpty(transcript) && !state.Cursors.Any(c => string.Equals(c.Path, transcript, StringComparison.OrdinalIgnoreCase)))
                 {
@@ -220,7 +226,8 @@ namespace Pult
                 if (hookEvent.Name != "Notification" && hookEvent.Name != "PermissionRequest") state.PcDialog = false;
                 state.Title = state.PickTitle();
                 PushThread(state);
-                SyncLocked(state);
+                long budget = EventReadBytes;
+                SyncLocked(state, ref budget);
                 state.Title = state.PickTitle();
                 PushThread(state);
                 string after = Json.Write(state.ToStorage().Where(p => p.Key != "ring" && p.Key != "last_event" && p.Key != "next_seq").ToDictionary(p => p.Key, p => p.Value));
@@ -232,7 +239,8 @@ namespace Pult
         {
             lock (gate)
             {
-                SyncLocked(state);
+                long budget = EventReadBytes;
+                SyncLocked(state, ref budget);
                 state.Title = state.PickTitle();
                 Persist(state);
                 PushThread(state);
@@ -243,10 +251,12 @@ namespace Pult
         {
             lock (gate)
             {
-                foreach (ThreadState state in byId.Values.ToList())
+                long budget = TickReadBytes;
+                foreach (ThreadState state in byId.Values.OrderByDescending(t => t.LastEventTicks).ToList())
                 {
+                    if (budget <= 0) break;
                     if (state.Cursors.Count == 0) continue;
-                    bool changed = SyncLocked(state);
+                    bool changed = SyncLocked(state, ref budget);
                     if (!changed) continue;
                     state.Title = state.PickTitle();
                     Persist(state);
@@ -422,15 +432,18 @@ namespace Pult
             return Convert.ToInt64(entry["seq"]);
         }
 
-        private bool SyncLocked(ThreadState state)
+        private bool SyncLocked(ThreadState state, ref long budget)
         {
             if (state.Cursors.Count == 0) return false;
             var context = new AdapterContext { PairedAtUtc = pairedAtUtc, Issued = issued, CallIds = state.CallIds, PhoneTexts = state.PhoneTexts, PeerResolver = ResolvePeer };
             foreach (TranscriptCursor cursor in state.Cursors)
             {
-                int guard = ChunksPerSync;
                 List<string> lines;
-                while (guard-- > 0 && (lines = cursor.ReadNew()).Count > 0) TranscriptAdapter.Parse(lines, context);
+                while (budget > 0 && (lines = cursor.ReadNew()).Count > 0)
+                {
+                    budget -= cursor.LastReadBytes;
+                    TranscriptAdapter.Parse(lines, context);
+                }
             }
             if (context.CustomTitle != null) state.TranscriptTitle = context.CustomTitle;
             if (state.FirstUser == null && context.FirstUserText != null) state.FirstUser = context.FirstUserText;
@@ -551,8 +564,11 @@ namespace Pult
             foreach (string id in victim.SessionIds) bySession.Remove(id);
             foreach (ThreadState other in byId.Values)
             {
+                if (other.ParentId != victim.Id && other.ForkThreadId != victim.Id) continue;
                 if (other.ParentId == victim.Id) other.ParentId = null;
                 if (other.ForkThreadId == victim.Id) other.ForkThreadId = null;
+                Persist(other);
+                PushThread(other);
             }
             try
             {

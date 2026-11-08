@@ -7,11 +7,12 @@ namespace Pult
 {
     internal sealed class TranscriptCursor
     {
-        private const int MaxReadBytes = 8 * 1024 * 1024;
+        public const int ChunkBytes = 1024 * 1024;
 
         private readonly string path;
         private long offset;
         private byte[] partial = new byte[0];
+        private long lastReadBytes;
 
         private TranscriptCursor(string path, long offset)
         {
@@ -124,6 +125,11 @@ namespace Pult
             get { return path; }
         }
 
+        public long LastReadBytes
+        {
+            get { return lastReadBytes; }
+        }
+
         public static TranscriptCursor AtEnd(string path)
         {
             if (string.IsNullOrEmpty(path)) return null;
@@ -153,6 +159,7 @@ namespace Pult
         public List<string> ReadNew()
         {
             var lines = new List<string>();
+            lastReadBytes = 0;
             try
             {
                 var info = new FileInfo(path);
@@ -175,7 +182,7 @@ namespace Pult
                         offset = 0;
                         partial = new byte[0];
                     }
-                    long available = Math.Min(length - offset, MaxReadBytes);
+                    long available = Math.Min(length - offset, ChunkBytes);
                     if (available <= 0) return lines;
                     chunk = new byte[available];
                     stream.Seek(offset, SeekOrigin.Begin);
@@ -188,6 +195,7 @@ namespace Pult
                     }
                     if (total < chunk.Length) Array.Resize(ref chunk, total);
                     offset += total;
+                    lastReadBytes = total;
                 }
             }
             catch (IOException)

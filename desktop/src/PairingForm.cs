@@ -28,7 +28,7 @@ namespace Pult
         private bool creating;
         private bool paired;
 
-        public PairingForm(AppSettings settings, Func<RelaySession, RelayClient> startClient)
+        public PairingForm(AppSettings settings, Func<RelaySession, RelayClient> startClient, DesktopSessions sessions)
         {
             this.settings = settings;
             this.startClient = startClient;
@@ -64,7 +64,7 @@ namespace Pult
             addFolderButton.Location = new Point(16, 220);
             addFolderButton.Size = new Size(140, 24);
             addFolderButton.Click += (sender, e) => OnAddFolder();
-            foreach (DesktopMeta meta in new DesktopSessions(DesktopSessions.DefaultRoot).Recent(8)) folderList.Items.Add(meta.OriginCwd ?? meta.Cwd, true);
+            foreach (DesktopMeta meta in sessions.Recent(8)) folderList.Items.Add(meta.OriginCwd ?? meta.Cwd, true);
             qrBox.Location = new Point(40, 248);
             qrBox.Size = new Size(360, 360);
             qrBox.SizeMode = PictureBoxSizeMode.Zoom;

@@ -271,10 +271,17 @@ namespace Pult.Tests
                 writer.Write(Rig.UserLine("end", "конец", DateTime.UtcNow) + "\n");
             }
             rig.Start("s-long", "C:\\work\\demo", null);
+            Func<bool> found = () => rig.Relay.Sent("feed").SelectMany(f => ((List<object>)f["entries"]).Cast<Dictionary<string, object>>()).Any(e => Json.String(e, "text") == "конец");
             rig.Broker.Handle(rig.Event("PostToolUse", "s-long", "C:\\work\\demo", null, path), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
-            rig.Broker.Handle(rig.Event("PostToolUse", "s-long", "C:\\work\\demo", null, path), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
-            bool found = rig.Relay.Sent("feed").SelectMany(f => ((List<object>)f["entries"]).Cast<Dictionary<string, object>>()).Any(e => Json.String(e, "text") == "конец");
-            Expect(found, "the record after the per-sync limit is read by the next sync");
+            Expect(!found(), "one hook event reads no more than its budget");
+            int passes = 1;
+            while (!found() && passes < 40)
+            {
+                rig.Broker.Tick();
+                passes++;
+            }
+            Expect(found(), "the record after the per-sync limit is read by later syncs");
+            Expect(passes >= 17, "a tick reads no more than its budget: " + passes);
         }
 
         private static string FromTranscript(string path, List<string> marked) { return FolderMembership.FromTranscriptDirectory(path, marked); }
@@ -465,6 +472,147 @@ namespace Pult.Tests
             File.SetLastWriteTimeUtc(Path.Combine(rig.Meta, "local_H.json"), DateTime.UtcNow.AddSeconds(5));
             rig.Broker.Handle(rig.Event("PostToolUse", "cli-3", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
             Expect(rig.Broker.Hub.All().Count == 1 && rig.Broker.Hub.Find(original).SessionIds.Contains("cli-3"), "session confirmed by desktop metadata keeps the item without its start");
+            rig.NoProblems();
+        }
+
+        public static void P27ChildBeforeItsDesktopThreadIsSeparate()
+        {
+            var rig = new Rig(5);
+            rig.WriteMeta("local_H", "cli-1", "C:\\work\\proj", "Родитель", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-child", "C:\\work\\proj", "local_H", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-1", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("SessionEnd", "cli-child", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 2, "child seen first and its desktop thread are two items: " + rig.Broker.Hub.All().Count);
+            ThreadState parent = rig.Broker.Hub.All().First(t => t.SessionIds.Contains("cli-1"));
+            Expect(parent.HostId == "local_H" && parent.DesktopApp && parent.Status != "ended", "desktop thread keeps its host and is not ended by the child");
+            rig.WriteMeta("local_U", "cli-u", "D:\\elsewhere", "Чужая папка", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-uchild", "C:\\work\\proj", "local_U", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Any(t => t.SessionIds.Contains("cli-uchild") && t.HostId == null), "child of a desktop thread in an unmarked folder joins by its own folder");
+            rig.WriteMeta("local_N", null, "C:\\work\\proj", "Новый", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-n", "C:\\work\\proj", "local_N", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Any(t => t.SessionIds.Contains("cli-n") && t.HostId == "local_N"), "first session of a new desktop thread before its metadata names it keeps the host");
+            rig.NoProblems();
+        }
+
+        public static void P28ChildSecondEventBeforeParentKeepsSeparate()
+        {
+            var rig = new Rig(5);
+            rig.WriteMeta("local_H", "cli-1", "C:\\work\\proj", "Родитель", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-child", "C:\\work\\proj", "local_H", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-child", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-1", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 2, "two items: " + rig.Broker.Hub.All().Count);
+            ThreadState child = rig.Broker.Hub.All().First(t => t.SessionIds.Contains("cli-child"));
+            ThreadState parent = rig.Broker.Hub.All().First(t => t.SessionIds.Contains("cli-1"));
+            Expect(child.HostId == null && !child.DesktopApp, "child's later events do not take the host");
+            Expect(parent.HostId == "local_H" && parent.DesktopApp, "desktop thread keeps its host");
+            rig.NoProblems();
+        }
+
+        public static void P29EvictedParentIsDroppedFromChild()
+        {
+            var rig = new Rig(5);
+            rig.WriteMeta("local_P", "cli-p", "C:\\work\\proj", "Родитель", null, null);
+            rig.WriteMeta("local_C", "cli-c", "C:\\work\\proj", "Дочерний", "local_P", null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-p", "C:\\work\\proj", "local_P", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-c", "C:\\work\\proj", "local_C", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            ThreadState child = rig.Broker.Hub.All().First(t => t.HostId == "local_C");
+            Expect(child.ParentId != null, "child points at its parent");
+            rig.Broker.Handle(rig.Event("SessionEnd", "cli-p", "C:\\work\\proj", "local_P", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            for (int i = 0; rig.Broker.Hub.All().Count < ThreadHub.MaxThreads; i++) rig.Start("s-fill" + i, "C:\\work\\f" + i, null);
+            rig.Start("s-over", "C:\\work\\over", null);
+            Expect(rig.Broker.Hub.All().All(t => t.HostId != "local_P"), "the ended parent is dropped");
+            Dictionary<string, object> last = rig.Relay.Sent("thread").Last(t => Json.String(t, "thread") == child.Id);
+            Expect(!last.ContainsKey("parent"), "phone learns the child has no parent in the session");
+            rig.Broker.Stop();
+            Broker restarted = rig.Create(true);
+            Expect(restarted.Hub.Find(child.Id).ParentId == null, "the dropped parent is not restored");
+            restarted.Stop();
+        }
+
+        public static void P30LargeTextRequestFits()
+        {
+            foreach (string text in new[] { new string('<', 4000), string.Concat(Enumerable.Repeat("😀", 2000).ToArray()) })
+            {
+                var rig = new Rig(5);
+                rig.Start("s-t", "C:\\work\\demo", null);
+                rig.Hello();
+                var channel = new FakeChannel(HookAck.Taken);
+                Thread thread = rig.Hook(rig.Event("Stop", "s-t", "C:\\work\\demo", null, null, "stop_hook_active", false, "last_assistant_message", text), channel);
+                rig.WaitRequest("text_request");
+                Dictionary<string, object> request = rig.Relay.Sent("text_request")[0];
+                Expect(MessageRules.Size(request) <= MessageRules.ItemBytes, "text request fits the item limit: " + MessageRules.Size(request));
+                rig.NoProblems();
+                rig.Broker.Stop();
+                thread.Join(3000);
+            }
+        }
+
+        public static void P31EventTitleAloneIsPersisted()
+        {
+            var rig = new Rig(5);
+            string transcript = Rig.Transcript(Temp(), "{\"type\":\"custom-title\",\"customTitle\":\"Своё имя\"}");
+            rig.Start("s-e", "C:\\work\\demo", null);
+            rig.Broker.Handle(rig.Event("PostToolUse", "s-e", "C:\\work\\demo", null, transcript), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("PostToolUse", "s-e", "C:\\work\\demo", null, transcript, "session_title", "Имя события"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            string id = rig.Broker.Hub.All()[0].Id;
+            rig.Broker.Stop();
+            Broker restarted = rig.Create(true);
+            Expect(restarted.Hub.Find(id).EventTitle == "Имя события", "event title alone is saved");
+            restarted.Stop();
+        }
+
+        public static void P32TickReadsRecentThreadFirst()
+        {
+            var rig = new Rig(5);
+            string dir = Temp();
+            Directory.CreateDirectory(dir);
+            string old = Path.Combine(dir, "old.jsonl");
+            File.WriteAllText(old, "", new UTF8Encoding(false));
+            rig.Start("s-old", "C:\\work\\demo", null);
+            rig.Broker.Handle(rig.Event("PostToolUse", "s-old", "C:\\work\\demo", null, old), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            string fresh = Rig.Transcript(dir);
+            Thread.Sleep(20);
+            rig.Start("s-fresh", "C:\\work\\demo", null);
+            rig.Broker.Handle(rig.Event("PostToolUse", "s-fresh", "C:\\work\\demo", null, fresh), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            string filler = "{\"type\":\"progress\",\"uuid\":\"p\",\"data\":\"" + new string('x', 1000) + "\"}\n";
+            using (var writer = new StreamWriter(old, true, new UTF8Encoding(false)))
+            {
+                for (int i = 0; i < 5000; i++) writer.Write(filler);
+            }
+            Rig.Append(fresh, Rig.UserLine("fr1", "свежее", DateTime.UtcNow));
+            rig.Broker.Tick();
+            bool seen = rig.Relay.Sent("feed").SelectMany(f => ((List<object>)f["entries"]).Cast<Dictionary<string, object>>()).Any(e => Json.String(e, "text") == "свежее");
+            Expect(seen, "the thread with the latest event is read first");
+            rig.Broker.Stop();
+        }
+
+        public static void P33LineLongerThanChunkIsReadWhole()
+        {
+            var rig = new Rig(5);
+            DateTime now = DateTime.UtcNow;
+            string transcript = Rig.Transcript(Temp(), Rig.UserLine("big", new string('я', 1300000), now), Rig.UserLine("end", "конец", now));
+            rig.Start("s-big", "C:\\work\\demo", null);
+            rig.Broker.Handle(rig.Event("PostToolUse", "s-big", "C:\\work\\demo", null, transcript), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            for (int i = 0; i < 6; i++) rig.Broker.Tick();
+            List<Dictionary<string, object>> entries = rig.Relay.Sent("feed").SelectMany(f => ((List<object>)f["entries"]).Cast<Dictionary<string, object>>()).ToList();
+            Expect(entries.Any(e => Json.String(e, "text") == "конец"), "record after a long line is read");
+            Expect(entries.Count(e => Json.String(e, "kind") == "user" && Json.Bool(e, "truncated")) == 1, "long line is one cut record");
+            rig.NoProblems();
+            rig.Broker.Stop();
+        }
+
+        public static void P34HostTakenByAnotherThreadStays()
+        {
+            var rig = new Rig(5);
+            rig.WriteMeta("local_H", "cli-1", "C:\\work\\proj", "Тред", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-1", "C:\\work\\proj", "local_H", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-y", "C:\\work\\proj", "local_H", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-y", "C:\\work\\proj", "local_H", null, "source", "resume"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-1", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            ThreadState desktop = rig.Broker.Hub.All().First(t => t.SessionIds.Contains("cli-1"));
+            ThreadState other = rig.Broker.Hub.All().First(t => t.SessionIds.Contains("cli-y"));
+            Expect(desktop != other && desktop.HostId == "local_H" && other.HostId == null, "a host owned by one thread is not moved to another");
             rig.NoProblems();
         }
     }

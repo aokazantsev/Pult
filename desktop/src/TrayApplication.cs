@@ -33,6 +33,7 @@ namespace Pult
         private volatile RelayClient active;
         private PairingForm pairingForm;
         private bool unpairing;
+        private readonly DesktopSessions sessions = new DesktopSessions(DesktopSessions.DefaultRoot);
 
         public TrayApplication(AppSettings settings)
         {
@@ -42,7 +43,6 @@ namespace Pult
             ServicePointManager.DefaultConnectionLimit = 16;
             ServicePointManager.Expect100Continue = false;
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-            var sessions = new DesktopSessions(DesktopSessions.DefaultRoot);
             ThreadPool.QueueUserWorkItem(state => sessions.Warm());
             broker = new Broker(relay, TimeSpan.FromSeconds(settings.WaitSeconds), BrokerPollMs, sessions, UserDataPaths.Directory, Broker.DefaultTickMs, Broker.DefaultSnapshotDelayMs);
             broker.ChoiceDelivery = settings.ChoiceDelivery;
@@ -195,7 +195,7 @@ namespace Pult
                 pairingForm.Activate();
                 return;
             }
-            pairingForm = new PairingForm(settings, StartClient);
+            pairingForm = new PairingForm(settings, StartClient, sessions);
             pairingForm.FormClosed += (sender, e) => pairingForm = null;
             pairingForm.Show();
         }

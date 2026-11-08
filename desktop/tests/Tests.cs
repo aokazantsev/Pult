@@ -132,6 +132,14 @@ namespace Pult.Tests
             Run("warm scan indexes desktop meta", RegressionTests.P24DesktopSessionsWarmIndexesBeforeFind);
             Run("child agent inside a desktop thread is separate", RegressionTests.P25ChildClaudeInsideDesktopThreadIsSeparate);
             Run("desktop thread session change keeps the item", RegressionTests.P26DesktopThreadSessionChangeKeepsItem);
+            Run("child seen before its desktop thread is separate", RegressionTests.P27ChildBeforeItsDesktopThreadIsSeparate);
+            Run("child's later events keep it separate", RegressionTests.P28ChildSecondEventBeforeParentKeepsSeparate);
+            Run("evicted parent is dropped from the child", RegressionTests.P29EvictedParentIsDroppedFromChild);
+            Run("large text request fits the item limit", RegressionTests.P30LargeTextRequestFits);
+            Run("event title alone is persisted", RegressionTests.P31EventTitleAloneIsPersisted);
+            Run("tick reads the recent thread first", RegressionTests.P32TickReadsRecentThreadFirst);
+            Run("line longer than a chunk is read whole", RegressionTests.P33LineLongerThanChunkIsReadWhole);
+            Run("host owned by another thread stays", RegressionTests.P34HostTakenByAnotherThreadStays);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

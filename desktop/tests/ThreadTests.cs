@@ -279,6 +279,7 @@ namespace Pult.Tests
             string original = Json.String(rig.Relay.Sent("thread")[0], "thread");
             rig.Broker.Handle(rig.Event("SessionStart", "cli-2", "C:\\work\\proj", "local_H", null, "source", "resume"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
             Expect(rig.Relay.Sent("thread").All(t => Json.String(t, "thread") == original), "new agent session of the same desktop thread is the same item");
+            Expect(rig.Broker.Hub.Find(original).SessionIds.Contains("cli-2"), "resumed agent session joins the item");
             rig.Broker.Handle(rig.Event("PostToolUse", "cli-2", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
             rig.Broker.Handle(rig.Event("PostToolUse", "cli-1", "C:\\work\\proj", "local_H", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
             Expect(rig.Relay.Sent("thread").All(t => Json.String(t, "thread") == original), "old agent id still maps to the item");

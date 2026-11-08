@@ -417,6 +417,7 @@ namespace Pult
                 { "title", thread.Title },
                 { "last_message", MessageRules.Cut(hookEvent.LastAssistantMessage ?? "", LastMessageLimit) }
             };
+            FeedLimits.Fit(message);
             var request = new PendingRequest(id, RequestKind.Text, hookEvent, Deadline(hookLimit), message, thread);
             request.Summary = "Окно текста";
             string outcome = Wait(request, channel);
