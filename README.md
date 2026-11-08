@@ -33,7 +33,8 @@
   `mobile` — `./gradlew assembleStandardDebug`, APK — `app/build/outputs/apk/standard/debug/app-standard-debug.apk`; пакет
   отладочной сборки — `ru.aokazantsev.pult.debug`. Отладочная сборка работает и на телефоне без блокировки экрана: вход
   без запроса биометрии или PIN; с блокировкой вход обычный. Единственный флейвор `standard` нужен варианту `standardDebug`: так его
-  принимает `slots.py apk --variant standardDebug` (кладёт APK в папку артефактов проекта).
+  принимает `slots.py apk --variant standardDebug` (кладёт APK в папку артефактов проекта). Отладочная сборка
+  сопрягается и без камеры, командами adb — [`docs/ADB-PAIRING.md`](docs/ADB-PAIRING.md).
 
 ## Документы
 

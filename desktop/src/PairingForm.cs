@@ -27,10 +27,17 @@ namespace Pult
         private RelayClient pending;
         private bool creating;
         private bool paired;
+        private readonly bool publishesQr;
 
         public PairingForm(AppSettings settings, Func<RelaySession, RelayClient> startClient, DesktopSessions sessions)
+            : this(settings, startClient, sessions, null)
+        {
+        }
+
+        public PairingForm(AppSettings settings, Func<RelaySession, RelayClient> startClient, DesktopSessions sessions, PairRequest request)
         {
             this.settings = settings;
+            publishesQr = request != null;
             this.startClient = startClient;
             Text = "Pult — подключить телефон";
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -59,7 +66,14 @@ namespace Pult
             folderList.Size = new Size(408, 74);
             folderList.CheckOnClick = true;
             folderList.HorizontalScrollbar = true;
-            foreach (DesktopMeta meta in sessions.Recent(8)) folderList.Items.Add(meta.OriginCwd ?? meta.Cwd, true);
+            if (request == null || request.Folders.Count == 0)
+            {
+                foreach (DesktopMeta meta in sessions.Recent(8)) folderList.Items.Add(meta.OriginCwd ?? meta.Cwd, true);
+            }
+            else
+            {
+                foreach (string folder in request.Folders) AddFolder(folder);
+            }
             folderList.ItemCheck += (sender, e) => BeginInvoke(new Action(ApplyFolders));
             addFolderButton.Text = "Добавить папку…";
             addFolderButton.Location = new Point(16, 220);
@@ -105,6 +119,7 @@ namespace Pult
             pending = null;
             offer = null;
             paired = true;
+            WithdrawQr();
             ShowQr(null);
             qrBox.Visible = false;
             statusLabel.Text = "Телефон подключён. Сверьте отпечаток с экраном телефона — цифры должны совпасть:";
@@ -122,6 +137,7 @@ namespace Pult
             if (client != pending) return;
             pending = null;
             offer = null;
+            WithdrawQr();
             ShowQr(null);
             statusLabel.Text = "Попытка сопряжения не прошла проверку: ключи телефона не заверены секретом из QR. Покажите новый QR.";
             newQrButton.Enabled = true;
@@ -133,6 +149,7 @@ namespace Pult
             if (client != pending) return;
             pending = null;
             offer = null;
+            WithdrawQr();
             ShowQr(null);
             ThreadPool.QueueUserWorkItem(state => PairingFlow.Forget(client));
             if (!paired) StartOffer();
@@ -143,6 +160,7 @@ namespace Pult
             if (creating || paired) return;
             creating = true;
             newQrButton.Enabled = false;
+            WithdrawQr();
             ShowQr(null);
             fingerprintLabel.Text = "";
             statusLabel.Text = "Создаю заявку на сервере…";
@@ -250,13 +268,18 @@ namespace Pult
             using (var dialog = new FolderBrowserDialog())
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                foreach (object item in folderList.Items)
-                {
-                    if (string.Equals(FolderMembership.Normalize((string)item), FolderMembership.Normalize(dialog.SelectedPath), StringComparison.OrdinalIgnoreCase)) return;
-                }
-                folderList.Items.Add(dialog.SelectedPath, true);
-                ApplyFolders();
+                if (AddFolder(dialog.SelectedPath)) ApplyFolders();
             }
+        }
+
+        private bool AddFolder(string folder)
+        {
+            foreach (object item in folderList.Items)
+            {
+                if (string.Equals(FolderMembership.Normalize((string)item), FolderMembership.Normalize(folder), StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            folderList.Items.Add(folder, true);
+            return true;
         }
 
         private int IdleSeconds()
@@ -267,8 +290,15 @@ namespace Pult
         private void RenderQr()
         {
             if (offer == null || !offer.Session.AwaitsPhone) return;
-            QrCode code = QrCode.EncodeBytes(new UTF8Encoding(false).GetBytes(offer.QrText));
+            string text = offer.QrText;
+            QrCode code = QrCode.EncodeBytes(new UTF8Encoding(false).GetBytes(text));
             ShowQr(code.Render(8, 4));
+            if (publishesQr) PairRequest.PublishQr(text);
+        }
+
+        private void WithdrawQr()
+        {
+            if (publishesQr) PairRequest.WithdrawQr();
         }
 
         private void ShowQr(Image image)
@@ -284,6 +314,7 @@ namespace Pult
             RelayClient client = pending;
             pending = null;
             offer = null;
+            WithdrawQr();
             ShowQr(null);
             if (client != null) ThreadPool.QueueUserWorkItem(state => PairingFlow.Abandon(client, "user"));
         }

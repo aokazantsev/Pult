@@ -151,6 +151,13 @@ namespace Pult.Tests
             Run("session of another host does not move the thread", RegressionTests.P43SessionOfAnotherHostDoesNotMoveThread);
             Run("phone texts and call ids survive a restart", RegressionTests.P44PhoneTextsAndCallIdsSurviveRestart);
             Run("pairing form opens with recent folders", RegressionTests.P45PairingFormOpensWithRecentFolders);
+            Run("adb pairing: no request file", PairRequestTests.NoRequestFile);
+            Run("adb pairing: request folders are read", PairRequestTests.RequestFoldersAreRead);
+            Run("adb pairing: empty request means recent folders", PairRequestTests.EmptyRequestMeansRecentFolders);
+            Run("adb pairing: requested folders replace recent", PairRequestTests.RequestedFoldersReplaceRecent);
+            Run("adb pairing: requested window publishes QR until closed", PairRequestTests.RequestedFormPublishesQrUntilClosed);
+            Run("adb pairing: clicked window keeps QR off the disk", PairRequestTests.ClickedFormDoesNotPublishQr);
+            Run("adb pairing: withdraw without file is quiet", PairRequestTests.WithdrawWithoutFileIsQuiet);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

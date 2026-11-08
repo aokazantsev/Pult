@@ -60,6 +60,7 @@ namespace Pult
                 listenerItem.Text = "Нет секрета хуков — хуки не принимаются";
             }
             RestorePair();
+            PairRequest.WithdrawQr();
             ThreadPool.QueueUserWorkItem(state => PairingFlow.CleanLeftoverClaim(null));
             listenerItem.Enabled = false;
             relayItem.Enabled = false;
@@ -195,9 +196,26 @@ namespace Pult
                 pairingForm.Activate();
                 return;
             }
-            pairingForm = new PairingForm(settings, StartClient, sessions);
-            pairingForm.FormClosed += (sender, e) => pairingForm = null;
-            pairingForm.Show();
+            ShowPairingForm(null);
+        }
+
+        private void TakePairRequest()
+        {
+            PairRequest request = PairRequest.Take();
+            if (request == null) return;
+            if (pairingForm != null && !pairingForm.IsDisposed) pairingForm.Close();
+            ShowPairingForm(request);
+        }
+
+        private void ShowPairingForm(PairRequest request)
+        {
+            var form = new PairingForm(settings, StartClient, sessions, request);
+            pairingForm = form;
+            form.FormClosed += (sender, e) =>
+            {
+                if (pairingForm == form) pairingForm = null;
+            };
+            form.Show();
         }
 
         private void OnUnpair()
@@ -286,6 +304,7 @@ namespace Pult
         private void Refresh()
         {
             CheckIdle();
+            TakePairRequest();
             ControlMode mode = broker.Mode;
             phoneModeItem.Checked = mode == ControlMode.Phone;
             pcModeItem.Checked = mode == ControlMode.Pc;

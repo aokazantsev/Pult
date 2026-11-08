@@ -49,4 +49,7 @@ dependencies {
     implementation(projects.shared)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.splashscreen)
+    debugImplementation(libs.kotlinx.coroutines.core)
+    testImplementation(libs.kotlin.test.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
