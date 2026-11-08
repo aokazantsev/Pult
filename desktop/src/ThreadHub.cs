@@ -14,6 +14,7 @@ namespace Pult
         private const int PhoneTextLimit = 20;
         private const long EventReadBytes = TranscriptCursor.ChunkBytes;
         private const long TickReadBytes = 2 * TranscriptCursor.ChunkBytes;
+        private const long RequestReadBytes = 32 * TranscriptCursor.ChunkBytes;
 
         private readonly object gate;
         private readonly IRelay relay;
@@ -157,13 +158,28 @@ namespace Pult
                 if (negative.Contains(hookEvent.SessionId)) return null;
                 if (host != null && byHost.TryGetValue(host, out state))
                 {
-                    if (ContinuesHost(host, hookEvent.SessionId))
+                    if (!ContinuesHost(host, hookEvent.SessionId))
                     {
-                        bySession[hookEvent.SessionId] = state;
-                        state.SessionIds.Add(hookEvent.SessionId);
-                        return state;
+                        host = null;
                     }
-                    host = null;
+                    else
+                    {
+                        string moved = MovedFolder(host, state);
+                        if (moved == null)
+                        {
+                            bySession[hookEvent.SessionId] = state;
+                            state.SessionIds.Add(hookEvent.SessionId);
+                            return state;
+                        }
+                        if (moved.Length == 0)
+                        {
+                            if (negative.Count >= NegativeLimit) negative.Clear();
+                            negative.Add(hookEvent.SessionId);
+                            return null;
+                        }
+                        state.HostId = null;
+                        Persist(state);
+                    }
                 }
                 DesktopMeta meta = sessions == null ? null : sessions.Find(host, hookEvent.SessionId);
                 if (host != null && meta != null && meta.LocalId == host && !string.IsNullOrEmpty(meta.CliSessionId) && !ContinuesHost(host, hookEvent.SessionId))
@@ -239,7 +255,7 @@ namespace Pult
         {
             lock (gate)
             {
-                long budget = EventReadBytes;
+                long budget = RequestReadBytes;
                 SyncLocked(state, ref budget);
                 state.Title = state.PickTitle();
                 Persist(state);
@@ -581,6 +597,16 @@ namespace Pult
             {
             }
             AppLog.Append("thread " + victim.Id + " dropped: more than " + MaxThreads + " threads");
+        }
+
+        private string MovedFolder(string host, ThreadState state)
+        {
+            DesktopMeta meta = sessions == null ? null : sessions.ByLocalId(host);
+            string origin = meta == null ? null : (meta.OriginCwd ?? meta.Cwd);
+            if (origin == null) return null;
+            string marked = FolderMembership.MarkedFolderFor(origin, folders);
+            if (marked == null) return "";
+            return FolderMembership.NameOf(marked) == state.Folder ? null : marked;
         }
 
         private bool ContinuesHost(string host, string sessionId)

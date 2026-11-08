@@ -140,6 +140,8 @@ namespace Pult.Tests
             Run("tick reads the recent thread first", RegressionTests.P32TickReadsRecentThreadFirst);
             Run("line longer than a chunk is read whole", RegressionTests.P33LineLongerThanChunkIsReadWhole);
             Run("host owned by another thread stays", RegressionTests.P34HostTakenByAnotherThreadStays);
+            Run("request after downtime goes after its context", RegressionTests.P35RequestAfterDowntimeGoesAfterItsContext);
+            Run("moved desktop thread follows its folder", RegressionTests.P36MovedDesktopThreadFollowsItsFolder);
             Console.WriteLine();
             Console.WriteLine("passed " + passed + ", failed " + failed);
             try

@@ -615,5 +615,59 @@ namespace Pult.Tests
             Expect(desktop != other && desktop.HostId == "local_H" && other.HostId == null, "a host owned by one thread is not moved to another");
             rig.NoProblems();
         }
+
+        public static void P35RequestAfterDowntimeGoesAfterItsContext()
+        {
+            var rig = new Rig(5);
+            string dir = Temp();
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, "downtime.jsonl");
+            string filler = "{\"type\":\"progress\",\"uuid\":\"p\",\"data\":\"" + new string('x', 1000) + "\"}\n";
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(false)))
+            {
+                for (int i = 0; i < 3000; i++) writer.Write(filler);
+                writer.Write(Rig.AssistantLine("ctx", "контекст запроса", DateTime.UtcNow) + "\n");
+            }
+            rig.Start("s-dt", "C:\\work\\demo", null);
+            rig.Hello();
+            var channel = new FakeChannel(HookAck.Taken);
+            Thread thread = rig.Hook(rig.Event("PermissionRequest", "s-dt", "C:\\work\\demo", null, path, "tool_name", "Bash", "tool_input", new Dictionary<string, object> { { "command", "ls" } }), channel);
+            rig.WaitRequest("permission_request");
+            long afterSeq = Convert.ToInt64(rig.Relay.Sent("permission_request")[0]["after_seq"]);
+            Dictionary<string, object> context = rig.Relay.Sent("feed").SelectMany(f => ((List<object>)f["entries"]).Cast<Dictionary<string, object>>()).FirstOrDefault(e => Json.String(e, "text") == "контекст запроса");
+            Expect(context != null && Convert.ToInt64(context["seq"]) == afterSeq, "the request card goes after the context written while Pult was down");
+            rig.Broker.Stop();
+            thread.Join(3000);
+        }
+
+        private static void MoveMeta(Rig rig, string local, string cli, string prior, string origin)
+        {
+            string path = Path.Combine(rig.Meta, local + ".json");
+            File.WriteAllText(path, Json.Write(new Dictionary<string, object>
+            {
+                { "sessionId", local }, { "cliSessionId", cli }, { "cwd", origin }, { "originCwd", origin }, { "title", "Тред" },
+                { "priorCliSessionIds", new object[] { prior } }
+            }), new UTF8Encoding(false));
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(5));
+        }
+
+        public static void P36MovedDesktopThreadFollowsItsFolder()
+        {
+            var rig = new Rig(5, "C:\\work\\a", "C:\\work\\b");
+            rig.WriteMeta("local_M", "cli-1", "C:\\work\\a", "Тред", null, null);
+            rig.Broker.Handle(rig.Event("SessionStart", "cli-1", "C:\\work\\a", "local_M", null, "source", "startup"), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            ThreadState first = rig.Broker.Hub.All().Single();
+            MoveMeta(rig, "local_M", "cli-2", "cli-1", "C:\\work\\b");
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-2", "C:\\work\\b", "local_M", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 2, "moved to another marked folder: a new item: " + rig.Broker.Hub.All().Count);
+            ThreadState moved = rig.Broker.Hub.All().First(t => t.SessionIds.Contains("cli-2"));
+            Expect(moved.Folder == "b" && moved.HostId == "local_M" && first.HostId == null, "new item has the new folder and the host");
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-2", "C:\\work\\b", "local_M", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 2, "later events stay in the new item");
+            MoveMeta(rig, "local_M", "cli-3", "cli-2", "D:\\elsewhere");
+            rig.Broker.Handle(rig.Event("PostToolUse", "cli-3", "D:\\elsewhere", "local_M", null), TimeSpan.FromSeconds(1), new FakeChannel(HookAck.Taken));
+            Expect(rig.Broker.Hub.All().Count == 2 && rig.Broker.Hub.All().All(t => !t.SessionIds.Contains("cli-3")), "moved out of marked folders: stays on the pc");
+            rig.NoProblems();
+        }
     }
 }
