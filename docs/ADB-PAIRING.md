@@ -23,20 +23,20 @@ Claude. Работает только с отладочной сборкой п�
 2. **Телефон не сопряжён.** Уже сопряжён (на экране список тредов или «Сверьте отпечаток») — стереть данные
    приложения, иначе в logcat отказ `failed: the phone is already paired …; run pm clear first`:
    ```bash
-   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/claude/hooks/slots.py device --device redmi --"
+   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/rules/hooks/slots.py device --device redmi --"
    $D adb shell pm clear ru.aokazantsev.pult.debug
    ```
 3. **Экран разбужен, разблокирован и не гаснет** (на Xiaomi пауза обязательна; `stay_on_while_plugged_in` вернёт
    шаг 6), журнал приложения очищен:
    ```bash
-   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/claude/hooks/slots.py device --device redmi --"
+   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/rules/hooks/slots.py device --device redmi --"
    $D adb shell settings put global stay_on_while_plugged_in 7
    $D adb shell input keyevent KEYCODE_WAKEUP; sleep 1; $D adb shell wm dismiss-keyguard; $D adb logcat -c
    ```
 4. **QR с ПК — в приложение.** `--folder` — папки, чьи треды увидит телефон (можно несколько); без них — папки
    последних тредов, как в окне по умолчанию:
    ```bash
-   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/claude/hooks/slots.py device --device redmi --"; X=D:/dev/pets/windows/Pult/desktop/Pult.exe
+   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/rules/hooks/slots.py device --device redmi --"; X=D:/dev/pets/windows/Pult/desktop/Pult.exe
    R=$($X pair --folder 'D:\dev\pets\windows\Pult\experiments\hooks\desktop-lab'); B=$(printf '%s' "$R" | grep -o '"qr_b64url":"[^"]*"' | cut -d'"' -f4)
    [ -n "$B" ] || { echo "нет QR: $R"; false; } &&
    $D adb shell am start -n ru.aokazantsev.pult.debug/ru.aokazantsev.pult.DebugPairActivity --es pult_qr_b64 "$B"
@@ -45,7 +45,7 @@ Claude. Работает только с отладочной сборкой п�
    недоступен, ошибка ключей; `not_running` — шаг 1.
 5. **Итог** — за 5–10 с:
    ```bash
-   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/claude/hooks/slots.py device --device redmi --"; X=D:/dev/pets/windows/Pult/desktop/Pult.exe
+   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/rules/hooks/slots.py device --device redmi --"; X=D:/dev/pets/windows/Pult/desktop/Pult.exe
    $X pairing --wait 30 | grep -o '"state":"[a-z]*"\|"pair":"[^"]*"'
    $D adb logcat -d -s PultDebugPair
    ```
@@ -59,10 +59,10 @@ Claude. Работает только с отладочной сборкой п�
 6. **Окно сопряжения на ПК закрыть, экран — как был, устройство отпустить** (и после отказа шагов 4–5: скрытое окно
    иначе держит заявку до срока QR, около 9 мин 40 с):
    ```bash
-   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/claude/hooks/slots.py device --device redmi --"; X=D:/dev/pets/windows/Pult/desktop/Pult.exe
+   P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/rules/hooks/slots.py device --device redmi --"; X=D:/dev/pets/windows/Pult/desktop/Pult.exe
    $X close-pairing
    $D adb shell settings put global stay_on_while_plugged_in 0
-   $P C:/Users/aokaz/dev-config/claude/hooks/slots.py device --device redmi release
+   $P C:/Users/aokaz/dev-config/rules/hooks/slots.py device --device redmi release
    ```
 
 QR берётся и уходит в телефон одним вызовом шага 4, поэтому всегда свежий; повторный шаг 4 выпускает новую заявку
@@ -90,7 +90,7 @@ QR берётся и уходит в телефон одним вызовом ш
 (уровень `signature|privileged|development`: такое право приложению выдаёт только `pm grant` с adb). Тем же правом
 androidx закрывает свой `ProfileInstallReceiver`. Уровень на телефоне:
 ```bash
-P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/claude/hooks/slots.py device --device redmi --"
+P=C:/Users/aokaz/AppData/Local/Python/pythoncore-3.14-64/python.exe; D="$P C:/Users/aokaz/dev-config/rules/hooks/slots.py device --device redmi --"
 $D adb shell "pm list permissions -f -g | grep -A4 'permission:android.permission.DUMP$'"
 ```
 `run-as <пакет> am start …` защиту не проверяет: `am` от имени приложения отказывает раньше, по несовпадению пакета
